@@ -507,6 +507,41 @@
   font-size: 0.85rem;
 }
 
+.weekly-plan-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  list-style: none;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.settings-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-section > summary::after {
+  content: '+';
+  color: #93c5fd;
+  font-size: 1.35rem;
+  font-weight: 400;
+}
+
+.settings-section[open] > summary::after {
+  content: '−';
+}
+
+.settings-section-body {
+  margin-top: 14px;
+}
+
 .availability-list,
 .weekly-assignment-list {
   display: grid;
@@ -515,7 +550,7 @@
 
 .availability-row {
   display: grid;
-  grid-template-columns: 1.1fr 1.1fr 78px 110px auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   align-items: center;
 }
@@ -532,6 +567,7 @@
 }
 
 .availability-row .remove-button {
+  grid-column: 1 / -1;
   margin-top: 0;
   padding: 8px 10px;
 }
@@ -551,6 +587,7 @@
 
 .weekly-assignment div {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
 }
@@ -568,6 +605,14 @@
 
 .weekly-assignment .remove-button {
   margin-top: 0;
+}
+
+.weekly-assignment select {
+  flex: 1 1 150px;
+}
+
+.weekly-assignment input {
+  flex: 0 1 90px;
 }
 
 .weekly-assignment span,
@@ -773,14 +818,6 @@
 
   .button-row {
     flex-direction: column;
-  }
-
-  .availability-row {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .availability-row .remove-button {
-    grid-column: 1 / -1;
   }
 
   .weekly-assignment div {

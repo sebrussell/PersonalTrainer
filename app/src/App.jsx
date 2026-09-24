@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import { buildRecommendation } from './scheduler'
+import { buildWeeklyPlan } from './weeklyPlan'
 
 const timeOptions = [
   { value: 20, label: '20 min' },
@@ -82,6 +83,26 @@ function cloneAvailabilitySlots(slots) {
 
 function normalizeAvailabilitySlots(slots) {
   return slots.map((slot, index) => ({ ...slot, id: slot.id || `slot-${index}` }))
+}
+
+function mergeMissingDefaultSlots(slots) {
+  const normalized = normalizeAvailabilitySlots(slots)
+  const existingDays = new Set(normalized.map((slot) => slot.day))
+  const missingDefaults = defaultAvailabilitySlots
+    .filter((slot) => !existingDays.has(slot.day))
+    .map((slot, index) => ({ ...slot, id: `default-${slot.day}-${index}` }))
+
+  return [...normalized, ...missingDefaults].sort((first, second) => {
+    const firstDay = dayOptions.indexOf(first.day)
+    const secondDay = dayOptions.indexOf(second.day)
+    if (firstDay !== secondDay) {
+      return firstDay - secondDay
+    }
+
+    const firstPreWork = String(first.label).toLowerCase().includes('pre')
+    const secondPreWork = String(second.label).toLowerCase().includes('pre')
+    return Number(secondPreWork) - Number(firstPreWork)
+  })
 }
 
 function readWeeklyPlans() {
@@ -386,101 +407,6 @@ function createCustomGoal(name) {
   }
 }
 
-function getLikelihoodRank(value) {
-  return value === 'high' ? 0 : value === 'medium' ? 1 : 2
-}
-
-function getGoalDuration(goal, slotMinutes) {
-  const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
-  const maxDuration = Math.max(minDuration, Number(goal.maxDuration ?? goal.duration ?? minDuration))
-  const travelMinutes = Number(goal.travelMinutes || 0)
-  const exerciseMinutes = Math.max(minDuration, slotMinutes - travelMinutes)
-
-  return {
-    duration: Math.min(maxDuration, exerciseMinutes),
-    totalTime: Math.min(maxDuration, exerciseMinutes) + travelMinutes,
-    minDuration,
-  }
-}
-
-function buildWeeklyPlan({ goals, progress, slots }) {
-  const progressByGoal = new Map(progress.map((item) => [item.name.toLowerCase(), item.sessions]))
-  const orderedGoals = [...goals]
-    .map((goal) => ({
-      ...goal,
-      remaining: Math.max(0, (Number(goal.targetFrequency) || 0) - (progressByGoal.get(String(goal.name).toLowerCase()) || 0)),
-    }))
-    .filter((goal) => goal.remaining > 0)
-    .sort((first, second) => (Number(second.priority) || 0) - (Number(first.priority) || 0))
-  const availableSlots = slots.map((slot, index) => ({ ...slot, id: slot.id || `slot-${index}` }))
-  const usedSlots = new Set()
-  const usedGoalDays = new Set()
-  const assignments = []
-
-  const chooseSlot = (goal, includeOptional, optionalOnly = false) => availableSlots
-    .filter((slot) => !usedSlots.has(slot.id) && (optionalOnly ? slot.likelihood === 'low' : includeOptional || slot.likelihood !== 'low'))
-    .filter((slot) => !usedGoalDays.has(`${goal.name}-${slot.day}`))
-    .map((slot) => ({ slot, timing: getGoalDuration(goal, Number(slot.minutes) || 0) }))
-    .filter(({ slot, timing }) => timing.totalTime <= Number(slot.minutes || 0))
-    .sort((first, second) => (
-      getLikelihoodRank(first.slot.likelihood) - getLikelihoodRank(second.slot.likelihood)
-      || Math.abs(Number(first.slot.minutes) - first.timing.totalTime) - Math.abs(Number(second.slot.minutes) - second.timing.totalTime)
-    ))[0]
-
-  const addAssignment = (goal, selected, optional) => {
-    const { slot, timing } = selected
-    usedSlots.add(slot.id)
-    usedGoalDays.add(`${goal.name}-${slot.day}`)
-    assignments.push({
-      id: `${slot.id}-${goal.name}`,
-      slotId: slot.id,
-      day: slot.day,
-      dayIndex: dayOptions.indexOf(slot.day),
-      label: slot.label,
-      goalName: goal.name,
-      activity: goal.activity || goal.name,
-      duration: timing.duration,
-      totalTime: timing.totalTime,
-      optional,
-      rationale: `${goal.name} has priority ${goal.priority || 0} with ${goal.remaining} session${goal.remaining === 1 ? '' : 's'} remaining this week.`,
-      backup: null,
-    })
-  }
-
-  orderedGoals.forEach((goal) => {
-    for (let count = 0; count < goal.remaining; count += 1) {
-      const selected = chooseSlot(goal, false)
-      if (!selected) {
-        break
-      }
-      addAssignment(goal, selected, false)
-    }
-  })
-
-  orderedGoals.forEach((goal) => {
-    let assignedCount = assignments.filter((assignment) => assignment.goalName === goal.name).length
-    while (assignedCount < goal.remaining) {
-      const selected = chooseSlot(goal, true, true)
-      if (!selected) {
-        break
-      }
-      addAssignment(goal, selected, true)
-      assignedCount += 1
-    }
-  })
-
-  assignments.forEach((assignment) => {
-    const assignmentSlot = availableSlots.find((slot) => slot.id === assignment.slotId)
-    const backup = orderedGoals.find((goal) => (
-      goal.name !== assignment.goalName
-      && getGoalDuration(goal, Number(assignmentSlot?.minutes || 0)).totalTime <= Number(assignmentSlot?.minutes || 0)
-    ))
-    assignment.backup = backup?.name || null
-  })
-
-  return assignments
-}
-
 function App() {
   const [settings, setSettings] = useState(readSavedSettings)
   const [history, setHistory] = useState(readSessionHistory)
@@ -495,10 +421,10 @@ function App() {
   const [customExerciseInput, setCustomExerciseInput] = useState('')
   const currentWeekKey = getWeekStartKey()
   const currentWeeklyPlan = weeklyPlans[currentWeekKey]
-    ? { ...weeklyPlans[currentWeekKey], slots: normalizeAvailabilitySlots(weeklyPlans[currentWeekKey].slots || []) }
+    ? { ...weeklyPlans[currentWeekKey], slots: mergeMissingDefaultSlots(weeklyPlans[currentWeekKey].slots || []) }
     : {
         weekStart: currentWeekKey,
-        slots: normalizeAvailabilitySlots(cloneAvailabilitySlots(settings.availabilityDefaults || defaultAvailabilitySlots)),
+        slots: mergeMissingDefaultSlots(cloneAvailabilitySlots(settings.availabilityDefaults || defaultAvailabilitySlots)),
         assignments: [],
       }
   const todayIndex = (new Date().getDay() + 6) % 7
@@ -712,7 +638,7 @@ function App() {
         slots: normalizeAvailabilitySlots(cloneAvailabilitySlots(settings.availabilityDefaults || defaultAvailabilitySlots)),
         assignments: [],
       }
-      const nextPlan = updater({ ...existing, slots: normalizeAvailabilitySlots(existing.slots || []) })
+      const nextPlan = updater({ ...existing, slots: mergeMissingDefaultSlots(existing.slots || []) })
       const next = { ...current, [currentWeekKey]: nextPlan }
       window.localStorage.setItem('personal-trainer-weekly-plans', JSON.stringify(next))
       return next
@@ -742,6 +668,15 @@ function App() {
       ...plan,
       slots: plan.slots.filter((_, slotIndex) => slotIndex !== index),
       assignments: [],
+    }))
+  }
+
+  const restoreWeeklyDefaults = () => {
+    updateCurrentWeeklyPlan((plan) => ({
+      ...plan,
+      slots: normalizeAvailabilitySlots(cloneAvailabilitySlots(settings.availabilityDefaults || defaultAvailabilitySlots)),
+      assignments: [],
+      generatedAt: null,
     }))
   }
 
@@ -786,12 +721,24 @@ function App() {
   }
 
   const generateWeeklyPlan = () => {
+    const planSlots = mergeMissingDefaultSlots(currentWeeklyPlan.slots)
     const assignments = buildWeeklyPlan({
       goals: settings.goals,
       progress: weeklyProgress,
-      slots: currentWeeklyPlan.slots,
+      slots: planSlots,
+      fromDayIndex: todayIndex,
     })
-    updateCurrentWeeklyPlan((plan) => ({ ...plan, assignments, generatedAt: new Date().toISOString() }))
+    const nextPlan = {
+      ...currentWeeklyPlan,
+      slots: planSlots,
+      assignments,
+      generatedAt: new Date().toISOString(),
+    }
+    setWeeklyPlans((current) => {
+      const next = { ...current, [currentWeekKey]: nextPlan }
+      window.localStorage.setItem('personal-trainer-weekly-plans', JSON.stringify(next))
+      return next
+    })
   }
 
   const persistHistory = (next) => {
@@ -1219,10 +1166,16 @@ function App() {
               <div>
                 <h2>Weekly plan</h2>
                 <p className="field-help">Set the time you might have, then build a rough plan around your goals.</p>
+                <p className="field-help">{currentWeeklyPlan.slots.length} availability windows, {currentWeeklyPlan.assignments.length} generated sessions.</p>
               </div>
-              <button type="button" className="primary-button small" onClick={generateWeeklyPlan}>
-                {currentWeeklyPlan.generatedAt ? 'Replan' : 'Build plan'}
-              </button>
+              <div className="weekly-plan-actions">
+                <button type="button" className="secondary-button small" onClick={restoreWeeklyDefaults}>
+                  Restore defaults
+                </button>
+                <button type="button" className="primary-button small" onClick={generateWeeklyPlan}>
+                  {currentWeeklyPlan.generatedAt ? 'Replan' : 'Build plan'}
+                </button>
+              </div>
             </div>
             <div className="availability-list">
               {currentWeeklyPlan.slots.map((slot, index) => (
@@ -1262,21 +1215,24 @@ function App() {
                     </div>
                     <span>{assignment.totalTime} min total including travel</span>
                     <p>{assignment.optional ? 'Optional slot. ' : ''}{assignment.rationale}</p>
-                    {assignment.backup ? <small>Backup: {assignment.backup}</small> : null}
                   </div>
                 ))}
               </div>
             ) : (
               <p className="empty-history">No plan yet. Edit your availability and choose Build plan.</p>
             )}
+            {currentWeeklyPlan.generatedAt ? (
+              <p className="field-help">Generated {currentWeeklyPlan.assignments.length} sessions. Replan uses your latest progress and availability.</p>
+            ) : null}
           </section>
         </main>
       ) : activeTab === 'settings' ? (
         <main className="planner settings-tab-page">
-          <section className="card">
+          <details className="card settings-section" open>
+            <summary>Availability defaults</summary>
+            <div className="settings-section-body">
             <div className="card-header-row">
               <div>
-                <h2>Availability defaults</h2>
                 <p className="field-help">These are copied into each new week's plan. You can override them week by week.</p>
               </div>
               <button type="button" className="primary-button small" onClick={addAvailabilityDefault}>+ Add slot</button>
@@ -1296,10 +1252,12 @@ function App() {
                 </div>
               ))}
             </div>
-          </section>
-          <section className="card">
+            </div>
+          </details>
+          <details className="card settings-section" open>
+            <summary>Exercise types</summary>
+            <div className="settings-section-body">
             <div className="card-header-row">
-              <h2>Exercise types</h2>
               <button type="button" className="primary-button small" onClick={addGoal}>
                 + Add type
               </button>
@@ -1440,10 +1398,12 @@ function App() {
                 </button>
               </div>
             ))}
-          </section>
+            </div>
+          </details>
 
-          <section className="card debug-card">
-            <h2>Ranking debug</h2>
+          <details className="card debug-card settings-section" open>
+            <summary>Ranking debug</summary>
+            <div className="settings-section-body">
             <div className="debug-list">
               {recommendation.debug && recommendation.debug.length ? recommendation.debug.map((item) => (
                 <div key={`${item.title}-${item.score}`} className="debug-item">
@@ -1470,7 +1430,8 @@ function App() {
                 </div>
               )) : <p className="empty-debug">No debug data available yet.</p>}
             </div>
-          </section>
+            </div>
+          </details>
         </main>
       ) : activeTab === 'progress' ? (
         <main className="planner progress-tab">
