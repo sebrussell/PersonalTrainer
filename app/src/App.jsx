@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import { buildRecommendation } from './scheduler'
 
@@ -32,6 +32,26 @@ const sorenessOptions = [
   { value: 'sore', label: 'Sore' },
 ]
 const sorenessAreas = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core', 'Grip']
+const likelihoodOptions = [
+  { value: 'high', label: 'Likely' },
+  { value: 'medium', label: 'Possible' },
+  { value: 'low', label: 'Optional' },
+]
+const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+const defaultAvailabilitySlots = [
+  { day: 'Monday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
+  { day: 'Monday', label: 'Post-work', minutes: 60, likelihood: 'high' },
+  { day: 'Tuesday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
+  { day: 'Tuesday', label: 'Post-work', minutes: 120, likelihood: 'high' },
+  { day: 'Wednesday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
+  { day: 'Wednesday', label: 'Post-work', minutes: 60, likelihood: 'high' },
+  { day: 'Thursday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
+  { day: 'Thursday', label: 'Post-work', minutes: 60, likelihood: 'high' },
+  { day: 'Friday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
+  { day: 'Friday', label: 'Post-work', minutes: 60, likelihood: 'high' },
+  { day: 'Saturday', label: 'Weekend', minutes: 90, likelihood: 'high' },
+  { day: 'Sunday', label: 'Weekend', minutes: 60, likelihood: 'medium' },
+]
 
 function readNumberInput(value) {
   return value === '' ? '' : Number(value)
@@ -46,6 +66,35 @@ function sortHistory(sessions) {
 
 function formatAvailableTime(minutes) {
   return Number(minutes) >= 480 ? 'all day' : `${minutes} min`
+}
+
+function getWeekStartKey(date = new Date()) {
+  const weekStart = new Date(date)
+  const day = weekStart.getDay()
+  weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1))
+  weekStart.setHours(0, 0, 0, 0)
+  return weekStart.toISOString().slice(0, 10)
+}
+
+function cloneAvailabilitySlots(slots) {
+  return slots.map((slot) => ({ ...slot }))
+}
+
+function normalizeAvailabilitySlots(slots) {
+  return slots.map((slot, index) => ({ ...slot, id: slot.id || `slot-${index}` }))
+}
+
+function readWeeklyPlans() {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  try {
+    const raw = window.localStorage.getItem('personal-trainer-weekly-plans')
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
 }
 
 function readSessionHistory() {
@@ -207,6 +256,7 @@ const defaultSettings = {
   recovery: {
     soreness: Object.fromEntries(sorenessAreas.map((area) => [area, 'not-sore'])),
   },
+  availabilityDefaults: defaultAvailabilitySlots,
   goals: seededGoals,
 }
 
@@ -251,6 +301,16 @@ const setupQuestions = [
     key: 'travelPreference',
     options: travelOptions.map((option) => ({ value: option.value, label: option.label })),
   },
+  {
+    type: 'single',
+    title: 'How should we start your weekly availability?',
+    description: 'Use the suggested weekly slots or customize them before building your first plan.',
+    key: 'availabilityMode',
+    options: [
+      { value: 'default', label: 'Use the suggested slots' },
+      { value: 'custom', label: 'Customize my slots' },
+    ],
+  },
 ]
 
 function readSavedSettings() {
@@ -285,7 +345,15 @@ function readSavedSettings() {
         })
       : defaultSettings.goals
 
-    return { ...defaultSettings, ...saved, recovery: { ...defaultSettings.recovery, soreness }, goals }
+    return {
+      ...defaultSettings,
+      ...saved,
+      availabilityDefaults: Array.isArray(saved.availabilityDefaults)
+        ? saved.availabilityDefaults
+        : defaultAvailabilitySlots,
+      recovery: { ...defaultSettings.recovery, soreness },
+      goals,
+    }
   } catch {
     return defaultSettings
   }
@@ -318,34 +386,142 @@ function createCustomGoal(name) {
   }
 }
 
+function getLikelihoodRank(value) {
+  return value === 'high' ? 0 : value === 'medium' ? 1 : 2
+}
+
+function getGoalDuration(goal, slotMinutes) {
+  const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
+  const maxDuration = Math.max(minDuration, Number(goal.maxDuration ?? goal.duration ?? minDuration))
+  const travelMinutes = Number(goal.travelMinutes || 0)
+  const exerciseMinutes = Math.max(minDuration, slotMinutes - travelMinutes)
+
+  return {
+    duration: Math.min(maxDuration, exerciseMinutes),
+    totalTime: Math.min(maxDuration, exerciseMinutes) + travelMinutes,
+    minDuration,
+  }
+}
+
+function buildWeeklyPlan({ goals, progress, slots }) {
+  const progressByGoal = new Map(progress.map((item) => [item.name.toLowerCase(), item.sessions]))
+  const orderedGoals = [...goals]
+    .map((goal) => ({
+      ...goal,
+      remaining: Math.max(0, (Number(goal.targetFrequency) || 0) - (progressByGoal.get(String(goal.name).toLowerCase()) || 0)),
+    }))
+    .filter((goal) => goal.remaining > 0)
+    .sort((first, second) => (Number(second.priority) || 0) - (Number(first.priority) || 0))
+  const availableSlots = slots.map((slot, index) => ({ ...slot, id: slot.id || `slot-${index}` }))
+  const usedSlots = new Set()
+  const usedGoalDays = new Set()
+  const assignments = []
+
+  const chooseSlot = (goal, includeOptional, optionalOnly = false) => availableSlots
+    .filter((slot) => !usedSlots.has(slot.id) && (optionalOnly ? slot.likelihood === 'low' : includeOptional || slot.likelihood !== 'low'))
+    .filter((slot) => !usedGoalDays.has(`${goal.name}-${slot.day}`))
+    .map((slot) => ({ slot, timing: getGoalDuration(goal, Number(slot.minutes) || 0) }))
+    .filter(({ slot, timing }) => timing.totalTime <= Number(slot.minutes || 0))
+    .sort((first, second) => (
+      getLikelihoodRank(first.slot.likelihood) - getLikelihoodRank(second.slot.likelihood)
+      || Math.abs(Number(first.slot.minutes) - first.timing.totalTime) - Math.abs(Number(second.slot.minutes) - second.timing.totalTime)
+    ))[0]
+
+  const addAssignment = (goal, selected, optional) => {
+    const { slot, timing } = selected
+    usedSlots.add(slot.id)
+    usedGoalDays.add(`${goal.name}-${slot.day}`)
+    assignments.push({
+      id: `${slot.id}-${goal.name}`,
+      slotId: slot.id,
+      day: slot.day,
+      dayIndex: dayOptions.indexOf(slot.day),
+      label: slot.label,
+      goalName: goal.name,
+      activity: goal.activity || goal.name,
+      duration: timing.duration,
+      totalTime: timing.totalTime,
+      optional,
+      rationale: `${goal.name} has priority ${goal.priority || 0} with ${goal.remaining} session${goal.remaining === 1 ? '' : 's'} remaining this week.`,
+      backup: null,
+    })
+  }
+
+  orderedGoals.forEach((goal) => {
+    for (let count = 0; count < goal.remaining; count += 1) {
+      const selected = chooseSlot(goal, false)
+      if (!selected) {
+        break
+      }
+      addAssignment(goal, selected, false)
+    }
+  })
+
+  orderedGoals.forEach((goal) => {
+    let assignedCount = assignments.filter((assignment) => assignment.goalName === goal.name).length
+    while (assignedCount < goal.remaining) {
+      const selected = chooseSlot(goal, true, true)
+      if (!selected) {
+        break
+      }
+      addAssignment(goal, selected, true)
+      assignedCount += 1
+    }
+  })
+
+  assignments.forEach((assignment) => {
+    const assignmentSlot = availableSlots.find((slot) => slot.id === assignment.slotId)
+    const backup = orderedGoals.find((goal) => (
+      goal.name !== assignment.goalName
+      && getGoalDuration(goal, Number(assignmentSlot?.minutes || 0)).totalTime <= Number(assignmentSlot?.minutes || 0)
+    ))
+    assignment.backup = backup?.name || null
+  })
+
+  return assignments
+}
+
 function App() {
   const [settings, setSettings] = useState(readSavedSettings)
   const [history, setHistory] = useState(readSessionHistory)
+  const [weeklyPlans, setWeeklyPlans] = useState(readWeeklyPlans)
   const [editingHistoryIndex, setEditingHistoryIndex] = useState(null)
-  const [activeTab, setActiveTab] = useState('today')
+  const [activeTab, setActiveTab] = useState(() => (
+    readWeeklyPlans()[getWeekStartKey()] ? 'today' : 'plan'
+  ))
   const [showSetup, setShowSetup] = useState(() => !readSetupComplete())
   const [setupStep, setSetupStep] = useState(0)
   const [setupAnswers, setSetupAnswers] = useState({})
   const [customExerciseInput, setCustomExerciseInput] = useState('')
+  const currentWeekKey = getWeekStartKey()
+  const currentWeeklyPlan = weeklyPlans[currentWeekKey]
+    ? { ...weeklyPlans[currentWeekKey], slots: normalizeAvailabilitySlots(weeklyPlans[currentWeekKey].slots || []) }
+    : {
+        weekStart: currentWeekKey,
+        slots: normalizeAvailabilitySlots(cloneAvailabilitySlots(settings.availabilityDefaults || defaultAvailabilitySlots)),
+        assignments: [],
+      }
+  const todayIndex = (new Date().getDay() + 6) % 7
+  const plannedTodayKey = currentWeeklyPlan.assignments
+    .filter((assignment) => !assignment.optional && assignment.dayIndex === todayIndex)
+    .map((assignment) => assignment.activity || assignment.goalName)
+    .join('|')
 
   useEffect(() => {
     window.localStorage.setItem('personal-trainer-settings', JSON.stringify(settings))
   }, [settings])
 
-  const recommendation = useMemo(
-    () =>
-      buildRecommendation({
-        availableMinutes: settings.availableMinutes,
-        energy: settings.energy,
-        travelPreference: settings.travelPreference,
-        activityPreferences: settings.activityPreferences.map((item) => item.toLowerCase()),
-        musclePreferences: settings.musclePreferences.map((item) => item.toLowerCase()),
-        goals: settings.goals,
-        recentActivity: getRecentActivity(history),
-        recovery: settings.recovery,
-      }),
-    [history, settings],
-  )
+  const recommendation = buildRecommendation({
+    availableMinutes: settings.availableMinutes,
+    energy: settings.energy,
+    travelPreference: settings.travelPreference,
+    activityPreferences: settings.activityPreferences.map((item) => item.toLowerCase()),
+    musclePreferences: settings.musclePreferences.map((item) => item.toLowerCase()),
+    goals: settings.goals,
+    recentActivity: getRecentActivity(history),
+    recovery: settings.recovery,
+    plannedExercises: plannedTodayKey ? plannedTodayKey.split('|') : [],
+  })
   const recommendationOptions = [recommendation, ...recommendation.alternatives]
   const [recommendationSelection, setRecommendationSelection] = useState({
     recommendationTitle: recommendation.title,
@@ -401,6 +577,7 @@ function App() {
       window.localStorage.setItem('personal-trainer-settings', JSON.stringify(nextSettings))
       window.localStorage.setItem('personal-trainer-setup-complete', 'true')
     }
+    setActiveTab(setupAnswers.availabilityMode === 'custom' ? 'plan' : 'today')
     setShowSetup(false)
   }
 
@@ -408,7 +585,7 @@ function App() {
     ? [{
         type: 'multi',
         title: 'Start with the exercises you want in your plan',
-        description: 'You can edit these later from the Exercise types tab.',
+        description: 'You can edit these later from Settings.',
         key: 'customExercises',
         options: seededGoals.map((goal) => goal.name),
       }, ...setupQuestions]
@@ -500,6 +677,121 @@ function App() {
       ...current,
       goals: current.goals.filter((goal, goalIndex) => goalIndex !== index),
     }))
+  }
+
+  const updateAvailabilityDefault = (index, field, value) => {
+    setSettings((current) => ({
+      ...current,
+      availabilityDefaults: current.availabilityDefaults.map((slot, slotIndex) => (
+        slotIndex === index ? { ...slot, [field]: value } : slot
+      )),
+    }))
+  }
+
+  const addAvailabilityDefault = () => {
+    setSettings((current) => ({
+      ...current,
+      availabilityDefaults: [
+        ...current.availabilityDefaults,
+        { day: 'Monday', label: 'New slot', minutes: 45, likelihood: 'medium' },
+      ],
+    }))
+  }
+
+  const removeAvailabilityDefault = (index) => {
+    setSettings((current) => ({
+      ...current,
+      availabilityDefaults: current.availabilityDefaults.filter((_, slotIndex) => slotIndex !== index),
+    }))
+  }
+
+  const updateCurrentWeeklyPlan = (updater) => {
+    setWeeklyPlans((current) => {
+      const existing = current[currentWeekKey] || {
+        weekStart: currentWeekKey,
+        slots: normalizeAvailabilitySlots(cloneAvailabilitySlots(settings.availabilityDefaults || defaultAvailabilitySlots)),
+        assignments: [],
+      }
+      const nextPlan = updater({ ...existing, slots: normalizeAvailabilitySlots(existing.slots || []) })
+      const next = { ...current, [currentWeekKey]: nextPlan }
+      window.localStorage.setItem('personal-trainer-weekly-plans', JSON.stringify(next))
+      return next
+    })
+  }
+
+  const updateWeeklySlot = (index, field, value) => {
+    updateCurrentWeeklyPlan((plan) => ({
+      ...plan,
+      slots: plan.slots.map((slot, slotIndex) => (
+        slotIndex === index ? { ...slot, [field]: value } : slot
+      )),
+      assignments: [],
+    }))
+  }
+
+  const addWeeklySlot = () => {
+    updateCurrentWeeklyPlan((plan) => ({
+      ...plan,
+      slots: [...plan.slots, { day: 'Monday', label: 'New slot', minutes: 45, likelihood: 'medium' }],
+      assignments: [],
+    }))
+  }
+
+  const removeWeeklySlot = (index) => {
+    updateCurrentWeeklyPlan((plan) => ({
+      ...plan,
+      slots: plan.slots.filter((_, slotIndex) => slotIndex !== index),
+      assignments: [],
+    }))
+  }
+
+  const updateWeeklyAssignment = (index, field, value) => {
+    updateCurrentWeeklyPlan((plan) => ({
+      ...plan,
+      assignments: plan.assignments.map((assignment, assignmentIndex) => {
+        if (assignmentIndex !== index) {
+          return assignment
+        }
+
+        if (field === 'slotId') {
+          const slot = plan.slots.find((item) => item.id === value)
+          return slot
+            ? { ...assignment, slotId: value, day: slot.day, label: slot.label }
+            : assignment
+        }
+
+        if (field === 'goalName') {
+          const goal = settings.goals.find((item) => item.name === value)
+          return goal
+            ? { ...assignment, goalName: goal.name, activity: goal.activity || goal.name }
+            : assignment
+        }
+
+        const duration = readNumberInput(value)
+        const goal = settings.goals.find((item) => item.name === assignment.goalName)
+        return {
+          ...assignment,
+          duration,
+          totalTime: Number(duration || 0) + Number(goal?.travelMinutes || 0),
+        }
+      }),
+    }))
+  }
+
+  const removeWeeklyAssignment = (index) => {
+    updateCurrentWeeklyPlan((plan) => ({
+      ...plan,
+      assignments: plan.assignments.filter((_, assignmentIndex) => assignmentIndex !== index),
+    }))
+  }
+
+  const generateWeeklyPlan = () => {
+    const assignments = buildWeeklyPlan({
+      goals: settings.goals,
+      progress: weeklyProgress,
+      slots: currentWeeklyPlan.slots,
+    })
+    updateCurrentWeeklyPlan((plan) => ({ ...plan, assignments, generatedAt: new Date().toISOString() }))
   }
 
   const persistHistory = (next) => {
@@ -734,6 +1026,13 @@ function App() {
         </button>
         <button
           type="button"
+          className={activeTab === 'plan' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('plan')}
+        >
+          Weekly plan
+        </button>
+        <button
+          type="button"
           className={activeTab === 'history' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('history')}
         >
@@ -911,20 +1210,93 @@ function App() {
             </div>
           </section>
 
+        </main>
+      ) : activeTab === 'plan' ? (
+        <main className="planner weekly-plan-tab">
           <section className="card">
-            <h2>Weekly plan</h2>
-            <div className="week-grid">
-              {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
-                <div key={day} className="day-block">
-                  <span>{day}</span>
-                  <strong>{index % 2 === 0 ? 'Strength' : index === 1 ? 'Easy run' : index === 3 ? 'Climbing' : 'Walk'}</strong>
+            <p className="eyebrow">Week of {currentWeekKey}</p>
+            <div className="card-header-row">
+              <div>
+                <h2>Weekly plan</h2>
+                <p className="field-help">Set the time you might have, then build a rough plan around your goals.</p>
+              </div>
+              <button type="button" className="primary-button small" onClick={generateWeeklyPlan}>
+                {currentWeeklyPlan.generatedAt ? 'Replan' : 'Build plan'}
+              </button>
+            </div>
+            <div className="availability-list">
+              {currentWeeklyPlan.slots.map((slot, index) => (
+                <div className="availability-row" key={slot.id || `${slot.day}-${slot.label}-${index}`}>
+                  <select value={slot.day} onChange={(event) => updateWeeklySlot(index, 'day', event.target.value)}>
+                    {dayOptions.map((day) => <option key={day} value={day}>{day}</option>)}
+                  </select>
+                  <input type="text" value={slot.label} onChange={(event) => updateWeeklySlot(index, 'label', event.target.value)} />
+                  <input type="number" min="0" max="480" value={slot.minutes} onChange={(event) => updateWeeklySlot(index, 'minutes', readNumberInput(event.target.value))} />
+                  <select value={slot.likelihood} onChange={(event) => updateWeeklySlot(index, 'likelihood', event.target.value)}>
+                    {likelihoodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <button type="button" className="remove-button" onClick={() => removeWeeklySlot(index)}>Remove</button>
+                </div>
+              ))}
+            </div>
+            <button type="button" className="secondary-button small" onClick={addWeeklySlot}>+ Add availability</button>
+          </section>
+
+          <section className="card">
+            <h2>Rough plan</h2>
+            {currentWeeklyPlan.assignments.length ? (
+              <div className="weekly-assignment-list">
+                {currentWeeklyPlan.assignments.map((assignment) => (
+                  <div className={assignment.optional ? 'weekly-assignment optional' : 'weekly-assignment'} key={assignment.id}>
+                    <div>
+                      <select value={assignment.slotId} onChange={(event) => updateWeeklyAssignment(currentWeeklyPlan.assignments.indexOf(assignment), 'slotId', event.target.value)}>
+                        {currentWeeklyPlan.slots.map((slot) => (
+                          <option key={slot.id} value={slot.id}>{slot.day} {slot.label}</option>
+                        ))}
+                      </select>
+                      <select value={assignment.goalName} onChange={(event) => updateWeeklyAssignment(currentWeeklyPlan.assignments.indexOf(assignment), 'goalName', event.target.value)}>
+                        {settings.goals.map((goal) => <option key={goal.name} value={goal.name}>{goal.name}</option>)}
+                      </select>
+                      <input type="number" min="5" max="240" value={assignment.duration} onChange={(event) => updateWeeklyAssignment(currentWeeklyPlan.assignments.indexOf(assignment), 'duration', event.target.value)} />
+                      <button type="button" className="remove-button" onClick={() => removeWeeklyAssignment(currentWeeklyPlan.assignments.indexOf(assignment))}>Remove</button>
+                    </div>
+                    <span>{assignment.totalTime} min total including travel</span>
+                    <p>{assignment.optional ? 'Optional slot. ' : ''}{assignment.rationale}</p>
+                    {assignment.backup ? <small>Backup: {assignment.backup}</small> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-history">No plan yet. Edit your availability and choose Build plan.</p>
+            )}
+          </section>
+        </main>
+      ) : activeTab === 'settings' ? (
+        <main className="planner settings-tab-page">
+          <section className="card">
+            <div className="card-header-row">
+              <div>
+                <h2>Availability defaults</h2>
+                <p className="field-help">These are copied into each new week's plan. You can override them week by week.</p>
+              </div>
+              <button type="button" className="primary-button small" onClick={addAvailabilityDefault}>+ Add slot</button>
+            </div>
+            <div className="availability-list">
+              {settings.availabilityDefaults.map((slot, index) => (
+                <div className="availability-row" key={`${slot.day}-${slot.label}-${index}`}>
+                  <select value={slot.day} onChange={(event) => updateAvailabilityDefault(index, 'day', event.target.value)}>
+                    {dayOptions.map((day) => <option key={day} value={day}>{day}</option>)}
+                  </select>
+                  <input type="text" value={slot.label} onChange={(event) => updateAvailabilityDefault(index, 'label', event.target.value)} />
+                  <input type="number" min="0" max="480" value={slot.minutes} onChange={(event) => updateAvailabilityDefault(index, 'minutes', readNumberInput(event.target.value))} />
+                  <select value={slot.likelihood} onChange={(event) => updateAvailabilityDefault(index, 'likelihood', event.target.value)}>
+                    {likelihoodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                  <button type="button" className="remove-button" onClick={() => removeAvailabilityDefault(index)}>Remove</button>
                 </div>
               ))}
             </div>
           </section>
-        </main>
-      ) : activeTab === 'settings' ? (
-        <main className="planner goals-tab">
           <section className="card">
             <div className="card-header-row">
               <h2>Exercise types</h2>

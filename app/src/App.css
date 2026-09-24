@@ -507,6 +507,80 @@
   font-size: 0.85rem;
 }
 
+.availability-list,
+.weekly-assignment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.availability-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.1fr 78px 110px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.availability-row input,
+.availability-row select {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 10px;
+  padding: 9px 10px;
+  color: white;
+  font: inherit;
+}
+
+.availability-row .remove-button {
+  margin-top: 0;
+  padding: 8px 10px;
+}
+
+.weekly-assignment {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(52, 211, 153, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.26);
+}
+
+.weekly-assignment.optional {
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.weekly-assignment div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weekly-assignment select,
+.weekly-assignment input {
+  min-width: 0;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: white;
+  font: inherit;
+}
+
+.weekly-assignment .remove-button {
+  margin-top: 0;
+}
+
+.weekly-assignment span,
+.weekly-assignment p,
+.weekly-assignment small {
+  color: #cbd5e1;
+  font-size: 0.82rem;
+}
+
+.weekly-assignment p {
+  margin: 0;
+}
+
 .goal-editor {
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 16px;
@@ -699,5 +773,18 @@
 
   .button-row {
     flex-direction: column;
+  }
+
+  .availability-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .availability-row .remove-button {
+    grid-column: 1 / -1;
+  }
+
+  .weekly-assignment div {
+    flex-direction: column;
+    gap: 4px;
   }
 }

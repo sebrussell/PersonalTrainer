@@ -106,6 +106,22 @@ describe('buildRecommendation', () => {
     })
   })
 
+  it('gives a planned exercise a recommendation weighting', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 60,
+      energy: 'good',
+      activityPreferences: ['anything'],
+      goals: [
+        { name: 'Running', priority: 2, targetFrequency: 2, minDuration: 20, maxDuration: 60 },
+        { name: 'Walking', priority: 2, targetFrequency: 2, minDuration: 20, maxDuration: 60 },
+      ],
+      plannedExercises: ['Walking'],
+    })
+
+    const walking = recommendation.debug.find((item) => item.title === 'Walking')
+    expect(walking.breakdown['Planned today']).toBe(28)
+  })
+
   it('rejects sessions whose total commitment exceeds available time', () => {
     const recommendation = buildRecommendation({
       availableMinutes: 90,

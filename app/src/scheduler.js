@@ -162,6 +162,7 @@ export function buildRecommendation({
   goals = defaultGoals,
   recentActivity = [],
   recovery = {},
+  plannedExercises = [],
 } = {}) {
   const safeAvailable = Number.isFinite(availableMinutes) ? Math.max(15, availableMinutes) : 45
   const baseExercisePool = Array.isArray(goals) && goals.length
@@ -229,6 +230,15 @@ export function buildRecommendation({
     }
 
     const totalTime = getTotalTime(candidate)
+    const plannedToday = plannedExercises.some((activity) => (
+      normalizeExerciseKey(activity) === normalizeExerciseKey(candidate.exerciseName || candidate.activity)
+    ))
+    if (plannedToday) {
+      score += 28
+      breakdown['Planned today'] = 28
+      reasonBits.push('it is already planned for today')
+    }
+
     const completedToday = recentActivity.some((item) => (
       item.daysAgo === 0
       && normalizeExerciseKey(item.activity) === normalizeExerciseKey(candidate.exerciseName || candidate.activity)
