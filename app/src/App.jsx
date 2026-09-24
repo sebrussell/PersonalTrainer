@@ -346,6 +346,15 @@ function App() {
       }),
     [history, settings],
   )
+  const recommendationOptions = [recommendation, ...recommendation.alternatives]
+  const [recommendationSelection, setRecommendationSelection] = useState({
+    recommendationTitle: recommendation.title,
+    selectedTitle: recommendation.title,
+  })
+  const selectedRecommendation = recommendationSelection.recommendationTitle === recommendation.title
+    ? recommendationOptions.find((item) => item.title === recommendationSelection.selectedTitle) || recommendation
+    : recommendation
+
   const weeklyProgress = getWeeklyProgress(settings.goals, history)
 
   const toggleSetupSelection = (key, value) => {
@@ -515,16 +524,25 @@ function App() {
     const completedAt = new Date().toISOString()
     const next = [
       {
-        activity: recommendation.title,
-        title: recommendation.title,
-        duration: recommendation.duration,
-        totalTime: recommendation.totalTime,
+        activity: selectedRecommendation.title,
+        title: selectedRecommendation.title,
+        duration: selectedRecommendation.duration,
+        totalTime: selectedRecommendation.totalTime,
         completedAt,
       },
       ...history,
     ]
     persistHistory(next)
     setActiveTab('history')
+  }
+
+  const cycleRecommendation = () => {
+    const currentIndex = recommendationOptions.findIndex((item) => item.title === selectedRecommendation.title)
+    const nextIndex = (currentIndex + 1) % recommendationOptions.length
+    setRecommendationSelection({
+      recommendationTitle: recommendation.title,
+      selectedTitle: recommendationOptions[nextIndex].title,
+    })
   }
 
   if (showSetup) {
@@ -854,19 +872,24 @@ function App() {
           </section>
 
           <section className="card recommendation-card">
-            <p className="eyebrow">Your best option</p>
-            <h2 className="recommendation-title">{recommendation.title}</h2>
+            <p className="eyebrow">Option {recommendationOptions.findIndex((item) => item.title === selectedRecommendation.title) + 1} of {recommendationOptions.length}</p>
+            <h2 className="recommendation-title">{selectedRecommendation.title}</h2>
             <div className="meta-row">
-              <span>{recommendation.duration} min</span>
-              <span>{recommendation.totalTime} min including travel</span>
+              <span>{selectedRecommendation.duration} min</span>
+              <span>{selectedRecommendation.totalTime} min including travel</span>
             </div>
-            <p className="reason">{recommendation.reason}</p>
+            <p className="reason">{selectedRecommendation.reason}</p>
             <div className="button-row">
               <button type="button" className="primary-button" onClick={addSessionLog}>
                 Mark as complete
               </button>
-              <button type="button" className="secondary-button">
-                Save for later
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={cycleRecommendation}
+                disabled={recommendationOptions.length < 2}
+              >
+                Next option
               </button>
             </div>
           </section>
