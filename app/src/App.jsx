@@ -62,11 +62,12 @@ function readSessionHistory() {
 }
 
 function getRecentActivity(history) {
-  const now = Date.now()
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
 
   return sortHistory(history).map((session) => ({
     activity: session.activity || session.title,
-    daysAgo: Math.max(0, Math.floor((now - new Date(session.completedAt || session.time).getTime()) / 86400000)),
+    daysAgo: Math.max(0, Math.floor((today.getTime() - new Date(session.completedAt || session.time).setHours(0, 0, 0, 0)) / 86400000)),
   }))
 }
 

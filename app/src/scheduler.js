@@ -229,6 +229,15 @@ export function buildRecommendation({
     }
 
     const totalTime = getTotalTime(candidate)
+    const completedToday = recentActivity.some((item) => (
+      item.daysAgo === 0
+      && normalizeExerciseKey(item.activity) === normalizeExerciseKey(candidate.exerciseName || candidate.activity)
+    ))
+    if (completedToday) {
+      breakdown['Completed today'] = -220
+      reasonBits.push('you already completed it today')
+    }
+
     if (totalTime > safeAvailable) {
       score -= 220
       breakdown['Time fit'] = -220
@@ -340,14 +349,25 @@ export function buildRecommendation({
       '0',
     )
 
-    return { ...candidate, score, breakdown, sorenessBlocked, calculation: `${calculation} = ${score}`, reason: explanation }
+    return {
+      ...candidate,
+      score,
+      breakdown,
+      completedToday,
+      sorenessBlocked,
+      calculation: `${calculation} = ${score}`,
+      reason: explanation,
+    }
   })
 
-  const validCandidates = scored.filter((candidate) => candidate.id === 'rest' || (!candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable))
+  const validCandidates = scored.filter((candidate) => (
+    candidate.id === 'rest'
+    || (!candidate.completedToday && !candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable)
+  ))
   const debug = [...scored].sort((a, b) => b.score - a.score).map((candidate) => ({
     title: candidate.title,
     score: candidate.score,
-    valid: candidate.id === 'rest' || (!candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable),
+    valid: candidate.id === 'rest' || (!candidate.completedToday && !candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable),
     breakdown: candidate.breakdown || {},
     calculation: candidate.calculation || `${candidate.score} = ${candidate.score}`,
   }))

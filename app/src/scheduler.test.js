@@ -87,6 +87,25 @@ describe('buildRecommendation', () => {
     })
   })
 
+  it('does not recommend an exercise completed today', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 60,
+      energy: 'good',
+      activityPreferences: ['running'],
+      goals: [
+        { name: 'Running', priority: 5, targetFrequency: 3, minDuration: 20, maxDuration: 60 },
+        { name: 'Walking', priority: 1, targetFrequency: 2, minDuration: 20, maxDuration: 60 },
+      ],
+      recentActivity: [{ activity: 'Running', daysAgo: 0 }],
+    })
+
+    expect(recommendation.title).toBe('Walking')
+    expect(recommendation.debug.find((item) => item.title === 'Running')).toMatchObject({
+      valid: false,
+      breakdown: { 'Completed today': -220 },
+    })
+  })
+
   it('rejects sessions whose total commitment exceeds available time', () => {
     const recommendation = buildRecommendation({
       availableMinutes: 90,
