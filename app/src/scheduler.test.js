@@ -122,4 +122,49 @@ describe('buildRecommendation', () => {
     expect(recommendation.duration).toBe(40)
     expect(recommendation.totalTime).toBe(50)
   })
+
+  it('blocks exercises that use a sore muscle area', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 60,
+      energy: 'good',
+      activityPreferences: ['anything'],
+      recovery: { soreness: { Legs: 'sore', Shoulders: 'not-sore' } },
+      goals: [
+        { name: 'Running', priority: 4, targetFrequency: 3, minDuration: 20, maxDuration: 60 },
+        { name: 'Climbing', priority: 2, targetFrequency: 1, travelMinutes: 0, minDuration: 20, maxDuration: 60 },
+      ],
+    })
+
+    const running = recommendation.debug.find((item) => item.title === 'Running')
+    const climbing = recommendation.debug.find((item) => item.title === 'Climbing')
+    expect(running.valid).toBe(false)
+    expect(running.breakdown['Recovery soreness']).toBe(-220)
+    expect(climbing.valid).toBe(true)
+    expect(climbing.breakdown['Recovery soreness']).toBe(0)
+  })
+
+  it('shortens an exercise when a matching muscle area is a little sore', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 60,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['running'],
+      recovery: { soreness: { Legs: 'a-little-sore' } },
+      goals: [{
+        name: 'Running',
+        priority: 4,
+        targetFrequency: 3,
+        travelMinutes: 0,
+        minDuration: 20,
+        maxDuration: 60,
+      }],
+    })
+
+    const running = recommendation.debug.find((item) => item.title === 'Running')
+    expect(recommendation.title).toBe('Running')
+    expect(recommendation.duration).toBe(40)
+    expect(recommendation.totalTime).toBe(40)
+    expect(running.valid).toBe(true)
+    expect(running.breakdown['Recovery soreness']).toBe(-10)
+  })
 })

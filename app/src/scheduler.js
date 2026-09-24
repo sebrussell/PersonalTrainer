@@ -132,6 +132,27 @@ function getTotalTime(candidate) {
   return duration + travelMinutes
 }
 
+function normalizeMuscle(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function getSorenessLevel(candidate, recovery) {
+  const severity = {
+    'not-sore': 0,
+    'a-little-sore': 1,
+    sore: 2,
+    'quite-sore': 2,
+    'very-sore': 2,
+  }
+
+  return Object.entries(recovery?.soreness ?? {}).reduce((highest, [area, value]) => {
+    const areaMatches = area === 'overall'
+      || area === 'full body'
+      || (candidate.muscles || []).some((muscle) => normalizeMuscle(muscle) === normalizeMuscle(area))
+    return areaMatches ? Math.max(highest, severity[value] || 0) : highest
+  }, 0)
+}
+
 export function buildRecommendation({
   availableMinutes = 45,
   energy = 'normal',
@@ -165,13 +186,20 @@ export function buildRecommendation({
       const minDuration = Number(exercise.minDuration ?? exercise.duration ?? 45)
       const maxDuration = Math.max(minDuration, Number(exercise.maxDuration ?? exercise.duration ?? minDuration))
       const availableExerciseMinutes = Math.max(0, safeAvailable - travelMinutes)
+      const sorenessLevel = getSorenessLevel({ muscles: exercise.muscles || [] }, recovery)
+      const availableDuration = Math.min(maxDuration, availableExerciseMinutes)
+      const littleSorenessMaxDuration = minDuration + ((maxDuration - minDuration) / 2)
+      const duration = sorenessLevel === 1
+        ? Math.max(minDuration, Math.min(littleSorenessMaxDuration, availableDuration))
+        : Math.max(minDuration, availableDuration)
 
       return {
         id: normalizeName(exercise.name),
         title: exercise.name,
-        duration: Math.min(maxDuration, Math.max(minDuration, availableExerciseMinutes)),
+        duration,
         minDuration,
         maxDuration,
+        sorenessLevel,
         exerciseName: exercise.name,
         activity: exercise.activity || exercise.name,
         travelMinutes,
@@ -269,12 +297,16 @@ export function buildRecommendation({
       breakdown['Short window penalty'] = -28
     }
 
-    const sorenessPenalty = recovery?.soreness ?? {}
-    const soreKey = Object.entries(sorenessPenalty).find(([, value]) => value === 'very-sore' || value === 'quite-sore')
-    if (soreKey && ['Running', 'Weight training', 'Climbing'].includes(candidate.exerciseName)) {
-      score -= 20
-      breakdown['Recovery soreness'] = -20
-      reasonBits.push('your recovery is still a bit behind')
+    const sorenessLevel = candidate.sorenessLevel ?? getSorenessLevel(candidate, recovery)
+    const sorenessBlocked = sorenessLevel >= 2
+    const sorenessShortened = sorenessLevel === 1
+    breakdown['Recovery soreness'] = sorenessBlocked ? -220 : sorenessShortened ? -10 : 0
+    if (sorenessBlocked) {
+      score -= 220
+      reasonBits.push('a muscle area used by this exercise is too sore')
+    } else if (sorenessShortened) {
+      score -= 10
+      reasonBits.push('a muscle area is a little sore, so this stays in the shorter half of its range')
     }
 
     const timeFit = Math.max(0, 18 - Math.abs(candidate.duration - safeAvailable) / 4)
@@ -308,14 +340,14 @@ export function buildRecommendation({
       '0',
     )
 
-    return { ...candidate, score, breakdown, calculation: `${calculation} = ${score}`, reason: explanation }
+    return { ...candidate, score, breakdown, sorenessBlocked, calculation: `${calculation} = ${score}`, reason: explanation }
   })
 
-  const validCandidates = scored.filter((candidate) => candidate.id === 'rest' || getTotalTime(candidate) <= safeAvailable)
+  const validCandidates = scored.filter((candidate) => candidate.id === 'rest' || (!candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable))
   const debug = [...scored].sort((a, b) => b.score - a.score).map((candidate) => ({
     title: candidate.title,
     score: candidate.score,
-    valid: candidate.id === 'rest' || getTotalTime(candidate) <= safeAvailable,
+    valid: candidate.id === 'rest' || (!candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable),
     breakdown: candidate.breakdown || {},
     calculation: candidate.calculation || `${candidate.score} = ${candidate.score}`,
   }))

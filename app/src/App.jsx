@@ -2,7 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { buildRecommendation } from './scheduler'
 
-const timeOptions = [20, 30, 45, 60, 90, 120]
+const timeOptions = [
+  { value: 20, label: '20 min' },
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '60 min' },
+  { value: 90, label: '90 min' },
+  { value: 120, label: '120 min' },
+  { value: 180, label: '180 min' },
+  { value: 480, label: 'All day' },
+]
 const energyOptions = [
   { value: 'cooked', label: '😴 Cooked' },
   { value: 'normal', label: '😐 Normal' },
@@ -17,9 +26,41 @@ const travelOptions = [
 ]
 const activityOptions = ['Running', 'Walking', 'Cycling', 'Climbing', 'Swimming', 'Weight training', 'Yoga', 'Anything']
 const muscleOptions = ['Chest', 'Back', 'Shoulders', 'Legs', 'Core', 'Grip', 'Full body', 'No preference']
+const sorenessOptions = [
+  { value: 'not-sore', label: 'Not sore' },
+  { value: 'a-little-sore', label: 'A little sore' },
+  { value: 'sore', label: 'Sore' },
+]
+const sorenessAreas = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core', 'Grip']
 
 function readNumberInput(value) {
   return value === '' ? '' : Number(value)
+}
+
+function formatAvailableTime(minutes) {
+  return Number(minutes) >= 480 ? 'all day' : `${minutes} min`
+}
+
+function readSessionHistory() {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const raw = window.localStorage.getItem('personal-trainer-log')
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function getRecentActivity(history) {
+  const now = Date.now()
+
+  return history.map((session) => ({
+    activity: session.activity || session.title,
+    daysAgo: Math.max(0, Math.floor((now - new Date(session.completedAt || session.time).getTime()) / 86400000)),
+  }))
 }
 
 const seededGoals = [
@@ -108,6 +149,9 @@ const defaultSettings = {
   travelPreference: 'prefer-home',
   activityPreferences: ['Anything'],
   musclePreferences: ['No preference'],
+  recovery: {
+    soreness: Object.fromEntries(sorenessAreas.map((area) => [area, 'not-sore'])),
+  },
   goals: seededGoals,
 }
 
@@ -166,6 +210,11 @@ function readSavedSettings() {
     }
 
     const saved = JSON.parse(raw)
+    const savedSoreness = saved.recovery?.soreness || {}
+    const soreness = Object.fromEntries(sorenessAreas.map((area) => [
+      area,
+      savedSoreness[area] || savedSoreness.overall || 'not-sore',
+    ]))
     const goals = Array.isArray(saved.goals)
       ? saved.goals.map((goal) => {
           const firstIntensity = Array.isArray(goal.intensities) ? goal.intensities[0] : null
@@ -178,7 +227,7 @@ function readSavedSettings() {
         })
       : defaultSettings.goals
 
-    return { ...defaultSettings, ...saved, goals }
+    return { ...defaultSettings, ...saved, recovery: { ...defaultSettings.recovery, soreness }, goals }
   } catch {
     return defaultSettings
   }
@@ -213,6 +262,8 @@ function createCustomGoal(name) {
 
 function App() {
   const [settings, setSettings] = useState(readSavedSettings)
+  const [history, setHistory] = useState(readSessionHistory)
+  const [editingHistoryIndex, setEditingHistoryIndex] = useState(null)
   const [activeTab, setActiveTab] = useState('today')
   const [showSetup, setShowSetup] = useState(() => !readSetupComplete())
   const [setupStep, setSetupStep] = useState(0)
@@ -232,14 +283,10 @@ function App() {
         activityPreferences: settings.activityPreferences.map((item) => item.toLowerCase()),
         musclePreferences: settings.musclePreferences.map((item) => item.toLowerCase()),
         goals: settings.goals,
-        recentActivity: [
-          { activity: 'Running', daysAgo: 4 },
-          { activity: 'Climbing', daysAgo: 2 },
-          { activity: 'Strength', daysAgo: 3 },
-        ],
+        recentActivity: getRecentActivity(history),
         recovery: settings.recovery,
       }),
-    [settings],
+    [history, settings],
   )
 
   const toggleSetupSelection = (key, value) => {
@@ -306,28 +353,42 @@ function App() {
 
   const cycleOption = (value, list, key) => {
     setSettings((current) => {
+      if (key === 'activityPreferences') {
+        if (value === 'Anything') {
+          return {
+            ...current,
+            [key]: current[key].includes(value) ? [] : ['Anything'],
+          }
+        }
+
+        const withoutAnything = current[key].filter((item) => item !== 'Anything')
+        return {
+          ...current,
+          [key]: withoutAnything.includes(value)
+            ? withoutAnything.filter((item) => item !== value)
+            : [...withoutAnything, value],
+        }
+      }
+
       const next = current[key].includes(value)
         ? current[key].filter((item) => item !== value)
         : [...current[key], value]
-
-      if (key === 'activityPreferences' && value === 'Anything') {
-        return { ...current, [key]: ['Anything'] }
-      }
-
-      if (key === 'activityPreferences' && next.includes('Anything')) {
-        return { ...current, [key]: ['Anything'] }
-      }
-
-      if (key === 'activityPreferences' && next.length === 0) {
-        return { ...current, [key]: ['Anything'] }
-      }
-
       return { ...current, [key]: next }
     })
   }
 
   const updateSingleChoice = (key, value) => {
     setSettings((current) => ({ ...current, [key]: value }))
+  }
+
+  const updateSoreness = (area, value) => {
+    setSettings((current) => ({
+      ...current,
+      recovery: {
+        ...current.recovery,
+        soreness: { ...(current.recovery?.soreness || {}), [area]: value },
+      },
+    }))
   }
 
   const updateGoal = (index, field, value) => {
@@ -374,13 +435,37 @@ function App() {
     }))
   }
 
+  const persistHistory = (next) => {
+    setHistory(next)
+    window.localStorage.setItem('personal-trainer-log', JSON.stringify(next))
+  }
+
+  const updateHistorySession = (index, field, value) => {
+    const next = history.map((session, sessionIndex) => (
+      sessionIndex === index ? { ...session, [field]: value } : session
+    ))
+    persistHistory(next)
+  }
+
+  const deleteHistorySession = (index) => {
+    persistHistory(history.filter((_, sessionIndex) => sessionIndex !== index))
+    setEditingHistoryIndex(null)
+  }
+
   const addSessionLog = () => {
-    const existing = JSON.parse(window.localStorage.getItem('personal-trainer-log') || '[]')
+    const completedAt = new Date().toISOString()
     const next = [
-      { title: recommendation.title, duration: recommendation.duration, totalTime: recommendation.totalTime, time: new Date().toISOString() },
-      ...existing,
+      {
+        activity: recommendation.title,
+        title: recommendation.title,
+        duration: recommendation.duration,
+        totalTime: recommendation.totalTime,
+        completedAt,
+      },
+      ...history,
     ]
-    window.localStorage.setItem('personal-trainer-log', JSON.stringify(next.slice(0, 5)))
+    persistHistory(next)
+    setActiveTab('history')
   }
 
   if (showSetup) {
@@ -554,7 +639,7 @@ function App() {
         <div>
           <p className="eyebrow">Thursday 24 September</p>
           <h1>
-            You have <span>{settings.availableMinutes} min</span> available
+            You have <span>{formatAvailableTime(settings.availableMinutes)}</span> available
           </h1>
         </div>
         <button type="button" className="primary-button">
@@ -577,6 +662,13 @@ function App() {
         >
           Exercise types
         </button>
+        <button
+          type="button"
+          className={activeTab === 'history' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('history')}
+        >
+          History
+        </button>
       </nav>
 
       {activeTab === 'today' ? (
@@ -584,14 +676,14 @@ function App() {
           <section className="card">
             <h2>How much time do you have?</h2>
             <div className="pill-grid">
-              {timeOptions.map((minutes) => (
+              {timeOptions.map((option) => (
                 <button
-                  key={minutes}
+                  key={option.value}
                   type="button"
-                  className={settings.availableMinutes === minutes ? 'pill selected' : 'pill'}
-                  onClick={() => updateSingleChoice('availableMinutes', minutes)}
+                  className={settings.availableMinutes === option.value ? 'pill selected' : 'pill'}
+                  onClick={() => updateSingleChoice('availableMinutes', option.value)}
                 >
-                  {minutes} min
+                  {option.label}
                 </button>
               ))}
             </div>
@@ -600,7 +692,7 @@ function App() {
               <input
                 type="number"
                 min="15"
-                max="240"
+                max="480"
                 value={settings.availableMinutes}
                 onChange={(event) => updateSingleChoice('availableMinutes', readNumberInput(event.target.value))}
               />
@@ -621,6 +713,30 @@ function App() {
                 </button>
               ))}
             </div>
+          </section>
+
+          <section className="card">
+            <h2>How sore is each area?</h2>
+            <div className="soreness-list">
+              {sorenessAreas.map((area) => (
+                <div key={area} className="soreness-row">
+                  <strong>{area}</strong>
+                  <div className="pill-grid slim">
+                    {sorenessOptions.map((option) => (
+                      <button
+                        key={`${area}-${option.value}`}
+                        type="button"
+                        className={settings.recovery?.soreness?.[area] === option.value ? 'pill selected' : 'pill'}
+                        onClick={() => updateSoreness(area, option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="field-help">A little soreness keeps related sessions in the shorter half of their length range. Sore blocks them.</p>
           </section>
 
           <section className="card">
@@ -681,7 +797,7 @@ function App() {
             <p className="reason">{recommendation.reason}</p>
             <div className="button-row">
               <button type="button" className="primary-button" onClick={addSessionLog}>
-                Start Session
+                Mark as complete
               </button>
               <button type="button" className="secondary-button">
                 Save for later
@@ -746,7 +862,7 @@ function App() {
             </div>
           </section>
         </main>
-      ) : (
+      ) : activeTab === 'goals' ? (
         <main className="planner goals-tab">
           <section className="card">
             <div className="card-header-row">
@@ -879,6 +995,78 @@ function App() {
                 </button>
               </div>
             ))}
+          </section>
+        </main>
+      ) : (
+        <main className="planner history-tab">
+          <section className="card">
+            <p className="eyebrow">Completed sessions</p>
+            <h2>Exercise history</h2>
+            {history.length ? (
+              <div className="history-list">
+                {history.map((session, index) => (
+                  <div key={`${session.completedAt || session.time}-${index}`} className="history-item">
+                    {editingHistoryIndex === index ? (
+                      <div className="history-editor">
+                        <label>
+                          <span>Exercise</span>
+                          <input
+                            type="text"
+                            value={session.activity || session.title || ''}
+                            onChange={(event) => updateHistorySession(index, 'activity', event.target.value)}
+                          />
+                        </label>
+                        <label>
+                          <span>Duration</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="240"
+                            value={session.duration ?? ''}
+                            onChange={(event) => updateHistorySession(index, 'duration', readNumberInput(event.target.value))}
+                          />
+                        </label>
+                        <label>
+                          <span>Date</span>
+                          <input
+                            type="date"
+                            value={String(session.completedAt || session.time || '').slice(0, 10)}
+                            onChange={(event) => updateHistorySession(index, 'completedAt', new Date(`${event.target.value}T12:00:00`).toISOString())}
+                          />
+                        </label>
+                        <div className="history-actions">
+                          <button type="button" className="secondary-button small" onClick={() => setEditingHistoryIndex(null)}>
+                            Done
+                          </button>
+                          <button type="button" className="remove-button" onClick={() => deleteHistorySession(index)}>
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div>
+                          <strong>{session.activity || session.title}</strong>
+                          <span>{session.duration} min exercise</span>
+                        </div>
+                        <time dateTime={session.completedAt || session.time}>
+                          {new Date(session.completedAt || session.time).toLocaleDateString(undefined, {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })}
+                        </time>
+                        <button type="button" className="secondary-button small" onClick={() => setEditingHistoryIndex(index)}>
+                          Edit
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="empty-history">No completed exercises yet. Mark a recommendation as complete and it will appear here.</p>
+            )}
           </section>
         </main>
       )}
