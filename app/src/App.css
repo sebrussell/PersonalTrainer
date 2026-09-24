@@ -311,6 +311,94 @@
   cursor: pointer;
 }
 
+.setup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.setup-card h1 {
+  margin: 0;
+  font-size: clamp(1.9rem, 4vw, 2.5rem);
+  line-height: 1.1;
+}
+
+.setup-card h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.setup-copy {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.custom-exercise-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.custom-exercise-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.custom-exercise-input-row input {
+  flex: 1;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: white;
+  font: inherit;
+}
+
+.setup-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #dbeafe;
+  font-size: 0.8rem;
+}
+
+.setup-progress-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.18);
+  overflow: hidden;
+}
+
+.setup-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+}
+
+.setup-grid {
+  margin-top: 6px;
+}
+
+.setup-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.setup-actions .primary-button,
+.setup-actions .secondary-button {
+  flex: 1;
+}
+
+.setup-actions .secondary-button:disabled,
+.primary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .week-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));

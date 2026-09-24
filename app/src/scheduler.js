@@ -109,10 +109,10 @@ export const activityProfiles = {
 }
 
 const travelPenalty = {
-  'no-travel': { climbing: 90, swim: 40, run: 0, strength: 0, walk: 0 },
-  'prefer-home': { climbing: 35, swim: 20, run: 0, strength: 0, walk: 0 },
-  'dont-mind': { climbing: 10, swim: 5, run: 0, strength: 0, walk: 0 },
-  'happy-to-travel': { climbing: 0, swim: 0, run: 0, strength: 0, walk: 0 },
+  'no-travel': { Climbing: 90, Swimming: 40, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
+  'prefer-home': { Climbing: 35, Swimming: 20, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
+  'dont-mind': { Climbing: 10, Swimming: 5, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
+  'happy-to-travel': { Climbing: 0, Swimming: 0, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
 }
 
 const energyFit = {
@@ -126,16 +126,22 @@ function normalizeName(value) {
   return String(value || '').toLowerCase().replace(/\s+/g, '-')
 }
 
+function normalizeExerciseKey(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+}
+
 function matchGoal(goal, candidateType) {
   if (!goal?.name) {
     return false
   }
 
-  const exerciseName = goal.name.toLowerCase()
-  const activityName = (goal.activity || goal.name).toLowerCase()
-  const candidateName = String(candidateType || '').toLowerCase()
+  const goalKeys = [goal.id, goal.exerciseId, goal.name, goal.activity]
+    .filter(Boolean)
+    .map((value) => normalizeExerciseKey(value))
 
-  return exerciseName === candidateName || activityName === candidateName || candidateName.includes(exerciseName)
+  const candidateKey = normalizeExerciseKey(candidateType)
+
+  return goalKeys.some((key) => key === candidateKey || candidateKey.includes(key) || key.includes(candidateKey))
 }
 
 function getMaintenanceDebt(goals, recentActivity, candidateType) {
@@ -145,9 +151,9 @@ function getMaintenanceDebt(goals, recentActivity, candidateType) {
   }
 
   const last = recentActivity.find((item) => matchGoal({ name: item.activity }, candidateType))
-  const daysAgo = last?.daysAgo ?? relevantGoal.targetFrequency * 4
+  const daysAgo = last?.daysAgo ?? relevantGoal.targetFrequency * 4 + 4
   const overdue = Math.max(0, daysAgo - 3)
-  return Math.min(18, overdue * 4 + relevantGoal.priority * 2)
+  return Math.min(180, overdue * 8 + relevantGoal.priority * 12)
 }
 
 function getTotalCommitment(candidate) {
@@ -167,18 +173,24 @@ export function buildRecommendation({
   recovery = {},
 } = {}) {
   const safeAvailable = Number.isFinite(availableMinutes) ? Math.max(15, availableMinutes) : 45
-  const exerciseTypes = Array.isArray(goals) && goals.length
+  const baseExercisePool = Array.isArray(goals) && goals.length
     ? [
-        ...defaultGoals,
+        ...defaultGoals.map((defaultGoal) => {
+          const override = goals.find((goal) =>
+            String(goal.name || '').toLowerCase() === String(defaultGoal.name || '').toLowerCase(),
+          )
+          return override ? { ...defaultGoal, ...override } : defaultGoal
+        }),
         ...goals.filter((goal) => !defaultGoals.some((defaultGoal) =>
           String(defaultGoal.name || '').toLowerCase() === String(goal.name || '').toLowerCase(),
         )),
       ]
     : defaultGoals
+  const activeGoals = Array.isArray(goals) && goals.length ? goals : defaultGoals
 
   const candidates = [
     { id: 'rest', title: 'Rest', duration: 0, commitment: 0, exerciseName: 'Rest', intensity: 'Rest' },
-    ...exerciseTypes.flatMap((exercise) => {
+    ...baseExercisePool.flatMap((exercise) => {
       const variants = Array.isArray(exercise.intensities) && exercise.intensities.length
         ? exercise.intensities
         : [{ label: exercise.name, duration: 45, commitment: 60 }]
@@ -199,7 +211,7 @@ export function buildRecommendation({
 
   const scored = candidates.map((candidate) => {
     const preferenceList = activityPreferences.length ? activityPreferences : ['anything']
-    const goalMatch = exerciseTypes.find((goal) => matchGoal(goal, candidate.exerciseName || candidate.activity || candidate.title))
+    const goalMatch = activeGoals.find((goal) => matchGoal(goal, candidate.exerciseName || candidate.activity || candidate.title))
 
     let score = 0
     const reasonBits = []
@@ -249,10 +261,10 @@ export function buildRecommendation({
       score += goalMatch.priority * 8
     }
 
-    const maintenanceDebt = getMaintenanceDebt(exerciseTypes, recentActivity, candidate.exerciseName)
+    const maintenanceDebt = getMaintenanceDebt(activeGoals, recentActivity, candidate.exerciseName)
     if (maintenanceDebt > 0) {
       score += maintenanceDebt
-      reasonBits.push('your maintenance debt is building for this exercise')
+      reasonBits.push('this is overdue and a key priority for you')
     }
 
     const recent = recentActivity.find((item) => item.activity && String(item.activity).toLowerCase() === String(candidate.exerciseName || '').toLowerCase())
@@ -263,7 +275,7 @@ export function buildRecommendation({
       score -= 18
     }
 
-    if (candidate.exerciseName === 'Walking' && (energy === 'cooked' || safeAvailable <= 60)) {
+    if (candidate.exerciseName === 'Walking' && (energy === 'cooked' || safeAvailable <= 30)) {
       score += 22
     }
     if (candidate.exerciseName === 'Climbing' && safeAvailable < 120) {
@@ -348,7 +360,10 @@ function buildReason({ availableMinutes, energy, travelPreference, activity, rea
     points.push('it matches what you fancy')
   }
 
-  if (reasonBits.length) {
+  const priorityReason = reasonBits.find((bit) => /overdue|priority|maintenance/i.test(bit))
+  if (priorityReason) {
+    points.push(priorityReason)
+  } else if (reasonBits.length) {
     points.push(reasonBits[0])
   }
 

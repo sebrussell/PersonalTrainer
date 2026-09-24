@@ -128,6 +128,49 @@ const defaultSettings = {
   goals: seededGoals,
 }
 
+const setupModeOptions = [
+  { value: 'default', label: 'Use the default exercise list' },
+  { value: 'custom', label: 'Choose / edit my exercise list manually' },
+]
+
+const setupQuestions = [
+  {
+    type: 'multi',
+    title: 'Which exercise types do you actually enjoy?',
+    description: 'Choose the activities you want to see in your plan most often.',
+    key: 'activityPreferences',
+    options: activityOptions.filter((option) => option !== 'Anything'),
+  },
+  {
+    type: 'single',
+    title: 'When you have 60 minutes and feel good, what sounds best?',
+    description: 'This helps calibrate how ambitious your recommended sessions should be.',
+    key: 'goodDayFeeling',
+    options: [
+      { value: 'performance', label: 'A proper hard session' },
+      { value: 'balanced', label: 'A steady, balanced workout' },
+      { value: 'easy', label: 'Something low-effort and low-friction' },
+    ],
+  },
+  {
+    type: 'single',
+    title: 'When your energy is low, what do you prefer?',
+    description: 'This helps the app choose recovery-friendly recommendations.',
+    key: 'lowEnergyPreference',
+    options: [
+      { value: 'easy-movement', label: 'Easy movement or a walk' },
+      { value: 'short-strength', label: 'A short strength session' },
+      { value: 'rest', label: 'I would rather rest' },
+    ],
+  },
+  {
+    type: 'single',
+    title: 'How much travel do you usually tolerate?',
+    key: 'travelPreference',
+    options: travelOptions.map((option) => ({ value: option.value, label: option.label })),
+  },
+]
+
 function readSavedSettings() {
   if (typeof window === 'undefined') {
     return defaultSettings
@@ -141,9 +184,42 @@ function readSavedSettings() {
   }
 }
 
+function readSetupComplete() {
+  if (typeof window === 'undefined') {
+    return true
+  }
+
+  return window.localStorage.getItem('personal-trainer-setup-complete') === 'true'
+}
+
+function createCustomGoal(name) {
+  const trimmed = String(name || '').trim()
+  if (!trimmed) {
+    return null
+  }
+
+  return {
+    name: trimmed,
+    activity: trimmed,
+    priority: 3,
+    targetFrequency: 1,
+    minimumFrequency: 1,
+    travelMinutes: 15,
+    muscles: ['Full body'],
+    intensities: [
+      { label: 'Main session', duration: 45, commitment: 60 },
+      { label: 'Steady session', duration: 60, commitment: 80 },
+    ],
+  }
+}
+
 function App() {
   const [settings, setSettings] = useState(readSavedSettings)
   const [activeTab, setActiveTab] = useState('today')
+  const [showSetup, setShowSetup] = useState(() => !readSetupComplete())
+  const [setupStep, setSetupStep] = useState(0)
+  const [setupAnswers, setSetupAnswers] = useState({})
+  const [customExerciseInput, setCustomExerciseInput] = useState('')
 
   useEffect(() => {
     window.localStorage.setItem('personal-trainer-settings', JSON.stringify(settings))
@@ -167,6 +243,68 @@ function App() {
       }),
     [settings],
   )
+
+  const toggleSetupSelection = (key, value) => {
+    setSetupAnswers((current) => {
+      const existing = Array.isArray(current[key]) ? current[key] : []
+      const next = existing.includes(value)
+        ? existing.filter((item) => item !== value)
+        : [...existing, value]
+
+      return { ...current, [key]: next }
+    })
+  }
+
+  const completeSetup = () => {
+    const selectedExercises = setupAnswers.customExercises?.length
+      ? setupAnswers.customExercises
+      : setupAnswers.activityPreferences?.length
+        ? setupAnswers.activityPreferences
+        : ['Walking', 'Running']
+
+    const selectedGoalNames = new Set(selectedExercises.map((item) => String(item).trim()))
+    const customGoals = selectedExercises
+      .map((item) => createCustomGoal(item))
+      .filter(Boolean)
+      .filter((goal) => !seededGoals.some((defaultGoal) => defaultGoal.name.toLowerCase() === goal.name.toLowerCase()))
+
+    const nextSettings = {
+      ...settings,
+      activityPreferences: selectedExercises,
+      travelPreference: setupAnswers.travelPreference ?? settings.travelPreference,
+      energy: setupAnswers.lowEnergyPreference === 'rest'
+        ? 'cooked'
+        : setupAnswers.goodDayFeeling === 'easy'
+          ? 'normal'
+          : 'good',
+      goals: [
+        ...seededGoals.filter((goal) => selectedGoalNames.has(goal.name) || selectedGoalNames.has(goal.activity)),
+        ...customGoals,
+      ],
+    }
+
+    setSettings(nextSettings)
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('personal-trainer-settings', JSON.stringify(nextSettings))
+      window.localStorage.setItem('personal-trainer-setup-complete', 'true')
+    }
+    setShowSetup(false)
+  }
+
+  const setupFlow = setupAnswers.setupMode === 'custom'
+    ? [{
+        type: 'multi',
+        title: 'Start with the exercises you want in your plan',
+        description: 'You can edit these later from the Exercise types tab.',
+        key: 'customExercises',
+        options: seededGoals.map((goal) => goal.name),
+      }, ...setupQuestions]
+    : setupQuestions
+
+  const currentSetupQuestion = setupFlow[setupStep]
+  const setupIsReady = currentSetupQuestion.type === 'multi'
+    ? (setupAnswers[currentSetupQuestion.key] || []).length > 0
+    : Boolean(setupAnswers[currentSetupQuestion.key])
 
   const cycleOption = (value, list, key) => {
     setSettings((current) => {
@@ -247,6 +385,171 @@ function App() {
       ...existing,
     ]
     window.localStorage.setItem('personal-trainer-log', JSON.stringify(next.slice(0, 5)))
+  }
+
+  if (showSetup) {
+    return (
+      <div className="app-shell">
+        <div className="card setup-card">
+          <p className="eyebrow">Starter setup</p>
+          <h1>Tell us how you like to move</h1>
+          <p className="setup-copy">This quick calibration will help us choose better sessions for your energy and schedule.</p>
+
+          {setupAnswers.setupMode ? (
+            <div className="setup-progress">
+              <span>{setupStep + 1} / {setupFlow.length}</span>
+              <div className="setup-progress-bar">
+                <span style={{ width: `${((setupStep + 1) / setupFlow.length) * 100}%` }} />
+              </div>
+            </div>
+          ) : null}
+
+          {setupAnswers.setupMode ? (
+            <>
+              <h2>{currentSetupQuestion.title}</h2>
+              {currentSetupQuestion.description ? <p className="setup-copy">{currentSetupQuestion.description}</p> : null}
+            </>
+          ) : (
+            <>
+              <h2>How do you want to start?</h2>
+              <p className="setup-copy">Pick a default exercise list or build your own before we calibrate your recommendations.</p>
+            </>
+          )}
+
+          {!setupAnswers.setupMode ? (
+            <div className="pill-grid slim setup-grid">
+              {setupModeOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={setupAnswers.setupMode === option.value ? 'pill selected' : 'pill'}
+                  onClick={() => {
+                    const nextMode = option.value
+                    const seedExercises = seededGoals.map((goal) => goal.name)
+                    setSetupAnswers((current) => ({
+                      ...current,
+                      setupMode: nextMode,
+                      customExercises: nextMode === 'default' ? seedExercises : current.customExercises || seedExercises,
+                    }))
+                    setSetupStep(0)
+                  }}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : currentSetupQuestion.key === 'customExercises' ? (
+            <div className="custom-exercise-step">
+              <div className="custom-exercise-input-row">
+                <input
+                  type="text"
+                  placeholder="Add exercise, e.g. Archery"
+                  value={customExerciseInput}
+                  onChange={(event) => setCustomExerciseInput(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="primary-button small"
+                  onClick={() => {
+                    const value = customExerciseInput.trim()
+                    if (!value) {
+                      return
+                    }
+
+                    setSetupAnswers((current) => {
+                      const existing = Array.isArray(current.customExercises) ? current.customExercises : []
+                      if (existing.some((item) => item.toLowerCase() === value.toLowerCase())) {
+                        return current
+                      }
+
+                      return {
+                        ...current,
+                        customExercises: [...existing, value],
+                      }
+                    })
+                    setCustomExerciseInput('')
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+
+              <div className="pill-grid slim setup-grid">
+                {(setupAnswers.customExercises || []).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={(setupAnswers.customExercises || []).includes(option) ? 'pill selected' : 'pill'}
+                    onClick={() => {
+                      setSetupAnswers((current) => ({
+                        ...current,
+                        customExercises: (current.customExercises || []).includes(option)
+                          ? (current.customExercises || []).filter((item) => item !== option)
+                          : [...(current.customExercises || []), option],
+                      }))
+                    }}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : currentSetupQuestion.type === 'multi' ? (
+            <div className="pill-grid slim setup-grid">
+              {currentSetupQuestion.options.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  className={(setupAnswers[currentSetupQuestion.key] || []).includes(option) ? 'pill selected' : 'pill'}
+                  onClick={() => toggleSetupSelection(currentSetupQuestion.key, option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="pill-grid slim setup-grid">
+              {currentSetupQuestion.options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={setupAnswers[currentSetupQuestion.key] === option.value ? 'pill selected' : 'pill'}
+                  onClick={() => setSetupAnswers((current) => ({ ...current, [currentSetupQuestion.key]: option.value }))}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="setup-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setSetupStep((current) => Math.max(0, current - 1))}
+              disabled={setupStep === 0}
+            >
+              Back
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                if (setupStep === setupFlow.length - 1) {
+                  completeSetup()
+                  return
+                }
+
+                setSetupStep((current) => current + 1)
+              }}
+              disabled={!setupIsReady}
+            >
+              {setupStep === setupFlow.length - 1 ? 'Finish setup' : 'Next'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
