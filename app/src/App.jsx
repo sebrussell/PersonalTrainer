@@ -37,6 +37,13 @@ function readNumberInput(value) {
   return value === '' ? '' : Number(value)
 }
 
+function sortHistory(sessions) {
+  return [...sessions].sort((first, second) => (
+    new Date(second.completedAt || second.time || 0).getTime()
+    - new Date(first.completedAt || first.time || 0).getTime()
+  ))
+}
+
 function formatAvailableTime(minutes) {
   return Number(minutes) >= 480 ? 'all day' : `${minutes} min`
 }
@@ -48,7 +55,7 @@ function readSessionHistory() {
 
   try {
     const raw = window.localStorage.getItem('personal-trainer-log')
-    return raw ? JSON.parse(raw) : []
+    return raw ? sortHistory(JSON.parse(raw)) : []
   } catch {
     return []
   }
@@ -57,10 +64,42 @@ function readSessionHistory() {
 function getRecentActivity(history) {
   const now = Date.now()
 
-  return history.map((session) => ({
+  return sortHistory(history).map((session) => ({
     activity: session.activity || session.title,
     daysAgo: Math.max(0, Math.floor((now - new Date(session.completedAt || session.time).getTime()) / 86400000)),
   }))
+}
+
+function getWeeklyProgress(goals, history) {
+  const now = new Date()
+  const weekStart = new Date(now)
+  const day = weekStart.getDay()
+  weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1))
+  weekStart.setHours(0, 0, 0, 0)
+
+  return goals.map((goal) => {
+    const goalKeys = [goal.name, goal.activity]
+      .filter(Boolean)
+      .map((value) => String(value).toLowerCase())
+    const sessions = history.filter((session) => {
+      const completedAt = new Date(session.completedAt || session.time || 0)
+      const activity = String(session.activity || session.title || '').toLowerCase()
+      return completedAt >= weekStart && goalKeys.some((key) => activity === key)
+    })
+    const targetSessions = Math.max(0, Number(goal.targetFrequency) || 0)
+    const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
+    const maxDuration = Number(goal.maxDuration ?? goal.duration ?? minDuration)
+    const targetMinutes = Math.round(((minDuration + maxDuration) / 2) * targetSessions)
+    const completedMinutes = sessions.reduce((total, session) => total + (Number(session.duration) || 0), 0)
+
+    return {
+      name: goal.name,
+      sessions: sessions.length,
+      targetSessions,
+      completedMinutes,
+      targetMinutes,
+    }
+  })
 }
 
 const seededGoals = [
@@ -288,6 +327,7 @@ function App() {
       }),
     [history, settings],
   )
+  const weeklyProgress = getWeeklyProgress(settings.goals, history)
 
   const toggleSetupSelection = (key, value) => {
     setSetupAnswers((current) => {
@@ -436,8 +476,9 @@ function App() {
   }
 
   const persistHistory = (next) => {
-    setHistory(next)
-    window.localStorage.setItem('personal-trainer-log', JSON.stringify(next))
+    const ordered = sortHistory(next)
+    setHistory(ordered)
+    window.localStorage.setItem('personal-trainer-log', JSON.stringify(ordered))
   }
 
   const updateHistorySession = (index, field, value) => {
@@ -668,6 +709,13 @@ function App() {
           onClick={() => setActiveTab('history')}
         >
           History
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'progress' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('progress')}
+        >
+          Progress
         </button>
       </nav>
 
@@ -995,6 +1043,42 @@ function App() {
                 </button>
               </div>
             ))}
+          </section>
+        </main>
+      ) : activeTab === 'progress' ? (
+        <main className="planner progress-tab">
+          <section className="card">
+            <p className="eyebrow">This week</p>
+            <h2>Weekly progress</h2>
+            <div className="progress-list">
+              {weeklyProgress.map((goal) => {
+                const sessionPercent = goal.targetSessions
+                  ? Math.min(100, (goal.sessions / goal.targetSessions) * 100)
+                  : 0
+                const minutePercent = goal.targetMinutes
+                  ? Math.min(100, (goal.completedMinutes / goal.targetMinutes) * 100)
+                  : 0
+
+                return (
+                  <div key={goal.name} className="progress-item">
+                    <div className="progress-heading">
+                      <strong>{goal.name}</strong>
+                      <span>{goal.sessions} / {goal.targetSessions} sessions</span>
+                    </div>
+                    <div className="progress-track" aria-label={`${goal.name} sessions progress`}>
+                      <span style={{ width: `${sessionPercent}%` }} />
+                    </div>
+                    <div className="progress-heading progress-minutes-heading">
+                      <span>Minutes</span>
+                      <span>{goal.completedMinutes} / {goal.targetMinutes} min</span>
+                    </div>
+                    <div className="progress-track minutes" aria-label={`${goal.name} minutes progress`}>
+                      <span style={{ width: `${minutePercent}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           </section>
         </main>
       ) : (
