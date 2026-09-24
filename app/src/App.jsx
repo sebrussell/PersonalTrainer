@@ -734,13 +734,6 @@ function App() {
         </button>
         <button
           type="button"
-          className={activeTab === 'goals' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('goals')}
-        >
-          Exercise types
-        </button>
-        <button
-          type="button"
           className={activeTab === 'history' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('history')}
         >
@@ -752,6 +745,15 @@ function App() {
           onClick={() => setActiveTab('progress')}
         >
           Progress
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'settings' ? 'tab active settings-tab' : 'tab settings-tab'}
+          onClick={() => setActiveTab('settings')}
+          aria-label="Settings"
+          title="Settings"
+        >
+          ⚙
         </button>
       </nav>
 
@@ -909,36 +911,6 @@ function App() {
             </div>
           </section>
 
-          <section className="card debug-card">
-            <h2>Ranking debug</h2>
-            <div className="debug-list">
-              {recommendation.debug && recommendation.debug.length ? recommendation.debug.map((item) => (
-                <div key={`${item.title}-${item.score}`} className="debug-item">
-                  <div className="debug-header">
-                    <strong>{item.title}</strong>
-                    <span className={item.valid ? 'debug-score valid' : 'debug-score invalid'}>
-                      {item.score}
-                    </span>
-                  </div>
-
-                  <div className="debug-calculation">
-                    <span>Calculation</span>
-                    <code>{item.calculation}</code>
-                  </div>
-
-                  <div className="debug-metrics">
-                    {Object.entries(item.breakdown || {}).map(([label, value]) => (
-                      <div key={`${item.title}-${label}`} className="debug-metric">
-                        <span>{label}</span>
-                        <strong>{Number(value) > 0 ? '+' : ''}{Number(value)}</strong>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )) : <p className="empty-debug">No debug data available yet.</p>}
-            </div>
-          </section>
-
           <section className="card">
             <h2>Weekly plan</h2>
             <div className="week-grid">
@@ -951,7 +923,7 @@ function App() {
             </div>
           </section>
         </main>
-      ) : activeTab === 'goals' ? (
+      ) : activeTab === 'settings' ? (
         <main className="planner goals-tab">
           <section className="card">
             <div className="card-header-row">
@@ -1096,6 +1068,36 @@ function App() {
                 </button>
               </div>
             ))}
+          </section>
+
+          <section className="card debug-card">
+            <h2>Ranking debug</h2>
+            <div className="debug-list">
+              {recommendation.debug && recommendation.debug.length ? recommendation.debug.map((item) => (
+                <div key={`${item.title}-${item.score}`} className="debug-item">
+                  <div className="debug-header">
+                    <strong>{item.title}</strong>
+                    <span className={item.valid ? 'debug-score valid' : 'debug-score invalid'}>
+                      {item.score}
+                    </span>
+                  </div>
+
+                  <div className="debug-calculation">
+                    <span>Calculation</span>
+                    <code>{item.calculation}</code>
+                  </div>
+
+                  <div className="debug-metrics">
+                    {Object.entries(item.breakdown || {}).map(([label, value]) => (
+                      <div key={`${item.title}-${label}`} className="debug-metric">
+                        <span>{label}</span>
+                        <strong>{Number(value) > 0 ? '+' : ''}{Number(value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )) : <p className="empty-debug">No debug data available yet.</p>}
+            </div>
           </section>
         </main>
       ) : activeTab === 'progress' ? (

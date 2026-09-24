@@ -53,6 +53,12 @@
   color: white;
 }
 
+.settings-tab {
+  flex: 0 0 44px;
+  padding-inline: 8px;
+  font-size: 1.1rem;
+}
+
 .planner {
   display: flex;
   flex-direction: column;
