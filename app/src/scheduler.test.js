@@ -36,14 +36,16 @@ describe('buildRecommendation', () => {
           priority: 5,
           targetFrequency: 2,
           travelMinutes: 10,
-          intensities: [{ label: 'Short swim', duration: 30, commitment: 35 }],
+          minDuration: 30,
+          maxDuration: 30,
         },
         {
           name: 'Walking',
           priority: 2,
           targetFrequency: 4,
           travelMinutes: 5,
-          intensities: [{ label: 'Walk', duration: 30, commitment: 30 }],
+          minDuration: 30,
+          maxDuration: 30,
         },
       ],
       recentActivity: [
@@ -76,6 +78,13 @@ describe('buildRecommendation', () => {
 
     expect(recommendation.title).toMatch(/Run/i)
     expect(recommendation.title).not.toMatch(/Walk/i)
+    expect(Array.isArray(recommendation.debug)).toBe(true)
+    expect(recommendation.debug[0]).toMatchObject({
+      title: expect.any(String),
+      score: expect.any(Number),
+      breakdown: expect.any(Object),
+      calculation: expect.stringContaining('='),
+    })
   })
 
   it('rejects sessions whose total commitment exceeds available time', () => {
@@ -89,5 +98,28 @@ describe('buildRecommendation', () => {
     })
 
     expect(recommendation.title).not.toContain('Climbing')
+    const climbingDebug = recommendation.debug.find((item) => item.title === 'Climbing')
+    expect(climbingDebug.valid).toBe(false)
+  })
+
+  it('uses the available time for flexible exercise lengths', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 50,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['running'],
+      goals: [{
+        name: 'Running',
+        priority: 4,
+        targetFrequency: 3,
+        travelMinutes: 10,
+        minDuration: 20,
+        maxDuration: 60,
+      }],
+    })
+
+    expect(recommendation.title).toBe('Running')
+    expect(recommendation.duration).toBe(40)
+    expect(recommendation.totalTime).toBe(50)
   })
 })

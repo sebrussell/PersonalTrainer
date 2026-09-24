@@ -18,6 +18,10 @@ const travelOptions = [
 const activityOptions = ['Running', 'Walking', 'Cycling', 'Climbing', 'Swimming', 'Weight training', 'Yoga', 'Anything']
 const muscleOptions = ['Chest', 'Back', 'Shoulders', 'Legs', 'Core', 'Grip', 'Full body', 'No preference']
 
+function readNumberInput(value) {
+  return value === '' ? '' : Number(value)
+}
+
 const seededGoals = [
   {
     name: 'Climbing',
@@ -27,11 +31,8 @@ const seededGoals = [
     minimumFrequency: 1,
     travelMinutes: 45,
     muscles: ['Back', 'Shoulders', 'Grip', 'Core'],
-    intensities: [
-      { label: 'Easy climb', duration: 60, commitment: 90 },
-      { label: 'Session climb', duration: 90, commitment: 150 },
-      { label: 'Project session', duration: 120, commitment: 200 },
-    ],
+    minDuration: 60,
+    maxDuration: 120,
   },
   {
     name: 'Swimming',
@@ -41,11 +42,8 @@ const seededGoals = [
     minimumFrequency: 1,
     travelMinutes: 25,
     muscles: ['Shoulders', 'Core', 'Legs'],
-    intensities: [
-      { label: 'Easy swim', duration: 35, commitment: 60 },
-      { label: 'Tempo swim', duration: 45, commitment: 80 },
-      { label: 'Long swim', duration: 60, commitment: 100 },
-    ],
+    minDuration: 30,
+    maxDuration: 60,
   },
   {
     name: 'Running',
@@ -55,11 +53,8 @@ const seededGoals = [
     minimumFrequency: 1,
     travelMinutes: 15,
     muscles: ['Legs', 'Core'],
-    intensities: [
-      { label: 'Easy run', duration: 35, commitment: 45 },
-      { label: 'Long run', duration: 60, commitment: 90 },
-      { label: 'Tempo run', duration: 45, commitment: 70 },
-    ],
+    minDuration: 20,
+    maxDuration: 60,
   },
   {
     name: 'Walking',
@@ -69,11 +64,8 @@ const seededGoals = [
     minimumFrequency: 2,
     travelMinutes: 5,
     muscles: ['Legs', 'Core'],
-    intensities: [
-      { label: 'Walk', duration: 30, commitment: 30 },
-      { label: 'Brisk walk', duration: 45, commitment: 55 },
-      { label: 'Long walk', duration: 60, commitment: 75 },
-    ],
+    minDuration: 15,
+    maxDuration: 60,
   },
   {
     name: 'Cycling',
@@ -83,11 +75,8 @@ const seededGoals = [
     minimumFrequency: 1,
     travelMinutes: 20,
     muscles: ['Legs', 'Core'],
-    intensities: [
-      { label: 'Easy ride', duration: 40, commitment: 55 },
-      { label: 'Endurance ride', duration: 60, commitment: 90 },
-      { label: 'Hill ride', duration: 50, commitment: 80 },
-    ],
+    minDuration: 30,
+    maxDuration: 90,
   },
   {
     name: 'Weight training',
@@ -97,11 +86,8 @@ const seededGoals = [
     minimumFrequency: 1,
     travelMinutes: 15,
     muscles: ['Chest', 'Back', 'Shoulders', 'Legs'],
-    intensities: [
-      { label: 'Strength session', duration: 45, commitment: 60 },
-      { label: 'Hypertrophy session', duration: 60, commitment: 90 },
-      { label: 'Power session', duration: 50, commitment: 75 },
-    ],
+    minDuration: 30,
+    maxDuration: 90,
   },
   {
     name: 'Yoga',
@@ -111,11 +97,8 @@ const seededGoals = [
     minimumFrequency: 1,
     travelMinutes: 10,
     muscles: ['Core', 'Back', 'Legs'],
-    intensities: [
-      { label: 'Mobility flow', duration: 25, commitment: 30 },
-      { label: 'Recovery yoga', duration: 35, commitment: 40 },
-      { label: 'Power yoga', duration: 45, commitment: 55 },
-    ],
+    minDuration: 20,
+    maxDuration: 60,
   },
 ]
 
@@ -178,7 +161,24 @@ function readSavedSettings() {
 
   try {
     const raw = window.localStorage.getItem('personal-trainer-settings')
-    return raw ? { ...defaultSettings, ...JSON.parse(raw) } : defaultSettings
+    if (!raw) {
+      return defaultSettings
+    }
+
+    const saved = JSON.parse(raw)
+    const goals = Array.isArray(saved.goals)
+      ? saved.goals.map((goal) => {
+          const firstIntensity = Array.isArray(goal.intensities) ? goal.intensities[0] : null
+          const { intensities, ...goalWithoutIntensities } = goal
+          return {
+            ...goalWithoutIntensities,
+            minDuration: Number(goal.minDuration ?? goal.duration ?? firstIntensity?.duration ?? 45),
+            maxDuration: Number(goal.maxDuration ?? goal.duration ?? firstIntensity?.duration ?? 45),
+          }
+        })
+      : defaultSettings.goals
+
+    return { ...defaultSettings, ...saved, goals }
   } catch {
     return defaultSettings
   }
@@ -206,10 +206,8 @@ function createCustomGoal(name) {
     minimumFrequency: 1,
     travelMinutes: 15,
     muscles: ['Full body'],
-    intensities: [
-      { label: 'Main session', duration: 45, commitment: 60 },
-      { label: 'Steady session', duration: 60, commitment: 80 },
-    ],
+    minDuration: 15,
+    maxDuration: 120,
   }
 }
 
@@ -362,10 +360,8 @@ function App() {
           minimumFrequency: 1,
           travelMinutes: 15,
           muscles: ['Legs'],
-          intensities: [
-            { label: 'Easy session', duration: 30, commitment: 45 },
-            { label: 'Main session', duration: 50, commitment: 70 },
-          ],
+          minDuration: 15,
+          maxDuration: 60,
         },
       ],
     }))
@@ -381,7 +377,7 @@ function App() {
   const addSessionLog = () => {
     const existing = JSON.parse(window.localStorage.getItem('personal-trainer-log') || '[]')
     const next = [
-      { title: recommendation.title, duration: recommendation.duration, commitment: recommendation.commitment, time: new Date().toISOString() },
+      { title: recommendation.title, duration: recommendation.duration, totalTime: recommendation.totalTime, time: new Date().toISOString() },
       ...existing,
     ]
     window.localStorage.setItem('personal-trainer-log', JSON.stringify(next.slice(0, 5)))
@@ -606,7 +602,7 @@ function App() {
                 min="15"
                 max="240"
                 value={settings.availableMinutes}
-                onChange={(event) => updateSingleChoice('availableMinutes', Number(event.target.value) || 45)}
+                onChange={(event) => updateSingleChoice('availableMinutes', readNumberInput(event.target.value))}
               />
             </label>
           </section>
@@ -680,7 +676,7 @@ function App() {
             <h2 className="recommendation-title">{recommendation.title}</h2>
             <div className="meta-row">
               <span>{recommendation.duration} min</span>
-              <span>Total commitment: {recommendation.commitment} min</span>
+              <span>{recommendation.totalTime} min including travel</span>
             </div>
             <p className="reason">{recommendation.reason}</p>
             <div className="button-row">
@@ -700,11 +696,41 @@ function App() {
                 <div key={item.title} className="option-item">
                   <div>
                     <strong>{item.title}</strong>
-                    <span>{item.duration} min</span>
+                    <span>{item.totalTime} min total</span>
                   </div>
                   <small>{item.reason}</small>
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section className="card debug-card">
+            <h2>Ranking debug</h2>
+            <div className="debug-list">
+              {recommendation.debug && recommendation.debug.length ? recommendation.debug.map((item) => (
+                <div key={`${item.title}-${item.score}`} className="debug-item">
+                  <div className="debug-header">
+                    <strong>{item.title}</strong>
+                    <span className={item.valid ? 'debug-score valid' : 'debug-score invalid'}>
+                      {item.score}
+                    </span>
+                  </div>
+
+                  <div className="debug-calculation">
+                    <span>Calculation</span>
+                    <code>{item.calculation}</code>
+                  </div>
+
+                  <div className="debug-metrics">
+                    {Object.entries(item.breakdown || {}).map(([label, value]) => (
+                      <div key={`${item.title}-${label}`} className="debug-metric">
+                        <span>{label}</span>
+                        <strong>{Number(value) > 0 ? '+' : ''}{Number(value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )) : <p className="empty-debug">No debug data available yet.</p>}
             </div>
           </section>
 
@@ -763,7 +789,7 @@ function App() {
                       min="1"
                       max="5"
                       value={goal.priority}
-                      onChange={(event) => updateGoal(index, 'priority', Number(event.target.value) || 1)}
+                      onChange={(event) => updateGoal(index, 'priority', readNumberInput(event.target.value))}
                     />
                   </label>
 
@@ -774,7 +800,7 @@ function App() {
                       min="0"
                       max="7"
                       value={goal.targetFrequency}
-                      onChange={(event) => updateGoal(index, 'targetFrequency', Number(event.target.value) || 0)}
+                      onChange={(event) => updateGoal(index, 'targetFrequency', readNumberInput(event.target.value))}
                     />
                   </label>
 
@@ -785,7 +811,29 @@ function App() {
                       min="0"
                       max="7"
                       value={goal.minimumFrequency ?? 1}
-                      onChange={(event) => updateGoal(index, 'minimumFrequency', Number(event.target.value) || 0)}
+                      onChange={(event) => updateGoal(index, 'minimumFrequency', readNumberInput(event.target.value))}
+                    />
+                  </label>
+
+                  <label>
+                    <span>Minimum length</span>
+                    <input
+                      type="number"
+                      min="5"
+                      max="240"
+                      value={goal.minDuration ?? goal.duration ?? 45}
+                      onChange={(event) => updateGoal(index, 'minDuration', readNumberInput(event.target.value))}
+                    />
+                  </label>
+
+                  <label>
+                    <span>Maximum length</span>
+                    <input
+                      type="number"
+                      min="5"
+                      max="240"
+                      value={goal.maxDuration ?? goal.duration ?? 45}
+                      onChange={(event) => updateGoal(index, 'maxDuration', readNumberInput(event.target.value))}
                     />
                   </label>
 
@@ -796,7 +844,7 @@ function App() {
                       min="0"
                       max="120"
                       value={goal.travelMinutes ?? 0}
-                      onChange={(event) => updateGoal(index, 'travelMinutes', Number(event.target.value) || 0)}
+                      onChange={(event) => updateGoal(index, 'travelMinutes', readNumberInput(event.target.value))}
                     />
                   </label>
                 </div>
@@ -823,17 +871,6 @@ function App() {
                         </button>
                       )
                     })}
-                  </div>
-                </div>
-
-                <div className="muscle-editor">
-                  <span>Intensity options</span>
-                  <div className="pill-grid slim">
-                    {(goal.intensities || []).map((variant) => (
-                      <span key={`${goal.name}-${variant.label}`} className="variant-pill">
-                        {variant.label}
-                      </span>
-                    ))}
                   </div>
                 </div>
 

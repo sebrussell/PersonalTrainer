@@ -7,11 +7,8 @@ export const defaultGoals = [
     minimumFrequency: 1,
     travelMinutes: 45,
     muscles: ['Back', 'Shoulders', 'Grip', 'Core'],
-    intensities: [
-      { label: 'Easy climb', duration: 60, commitment: 90 },
-      { label: 'Session climb', duration: 90, commitment: 150 },
-      { label: 'Project session', duration: 120, commitment: 200 },
-    ],
+    minDuration: 60,
+    maxDuration: 120,
   },
   {
     name: 'Swimming',
@@ -21,11 +18,8 @@ export const defaultGoals = [
     minimumFrequency: 1,
     travelMinutes: 25,
     muscles: ['Shoulders', 'Core', 'Legs'],
-    intensities: [
-      { label: 'Easy swim', duration: 35, commitment: 60 },
-      { label: 'Tempo swim', duration: 45, commitment: 80 },
-      { label: 'Long swim', duration: 60, commitment: 100 },
-    ],
+    minDuration: 30,
+    maxDuration: 60,
   },
   {
     name: 'Running',
@@ -35,11 +29,8 @@ export const defaultGoals = [
     minimumFrequency: 1,
     travelMinutes: 15,
     muscles: ['Legs', 'Core'],
-    intensities: [
-      { label: 'Easy run', duration: 35, commitment: 45 },
-      { label: 'Long run', duration: 60, commitment: 90 },
-      { label: 'Tempo run', duration: 45, commitment: 70 },
-    ],
+    minDuration: 20,
+    maxDuration: 60,
   },
   {
     name: 'Walking',
@@ -49,11 +40,8 @@ export const defaultGoals = [
     minimumFrequency: 2,
     travelMinutes: 5,
     muscles: ['Legs', 'Core'],
-    intensities: [
-      { label: 'Walk', duration: 30, commitment: 30 },
-      { label: 'Brisk walk', duration: 45, commitment: 55 },
-      { label: 'Long walk', duration: 60, commitment: 75 },
-    ],
+    minDuration: 15,
+    maxDuration: 60,
   },
   {
     name: 'Cycling',
@@ -63,11 +51,8 @@ export const defaultGoals = [
     minimumFrequency: 1,
     travelMinutes: 20,
     muscles: ['Legs', 'Core'],
-    intensities: [
-      { label: 'Easy ride', duration: 40, commitment: 55 },
-      { label: 'Endurance ride', duration: 60, commitment: 90 },
-      { label: 'Hill ride', duration: 50, commitment: 80 },
-    ],
+    minDuration: 30,
+    maxDuration: 90,
   },
   {
     name: 'Weight training',
@@ -77,11 +62,8 @@ export const defaultGoals = [
     minimumFrequency: 1,
     travelMinutes: 15,
     muscles: ['Chest', 'Back', 'Shoulders', 'Legs'],
-    intensities: [
-      { label: 'Strength session', duration: 45, commitment: 60 },
-      { label: 'Hypertrophy session', duration: 60, commitment: 90 },
-      { label: 'Power session', duration: 50, commitment: 75 },
-    ],
+    minDuration: 30,
+    maxDuration: 90,
   },
   {
     name: 'Yoga',
@@ -91,22 +73,10 @@ export const defaultGoals = [
     minimumFrequency: 1,
     travelMinutes: 10,
     muscles: ['Core', 'Back', 'Legs'],
-    intensities: [
-      { label: 'Mobility flow', duration: 25, commitment: 30 },
-      { label: 'Recovery yoga', duration: 35, commitment: 40 },
-      { label: 'Power yoga', duration: 45, commitment: 55 },
-    ],
+    minDuration: 20,
+    maxDuration: 60,
   },
 ]
-
-export const activityProfiles = {
-  walk: { title: 'Walk', minUseful: 15, recommendedDuration: 35, commitment: 35, emoji: '🚶' },
-  run: { title: 'Easy run', minUseful: 20, recommendedDuration: 40, commitment: 50, emoji: '🏃' },
-  strength: { title: 'Strength session', minUseful: 30, recommendedDuration: 45, commitment: 60, emoji: '🏋️' },
-  swim: { title: 'Easy swim', minUseful: 30, recommendedDuration: 45, commitment: 85, emoji: '🏊' },
-  climbing: { title: 'Easy climb', minUseful: 60, recommendedDuration: 90, commitment: 185, emoji: '🧗' },
-  rest: { title: 'Rest', minUseful: 0, recommendedDuration: 0, commitment: 0, emoji: '😴' },
-}
 
 const travelPenalty = {
   'no-travel': { Climbing: 90, Swimming: 40, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
@@ -156,10 +126,10 @@ function getMaintenanceDebt(goals, recentActivity, candidateType) {
   return Math.min(180, overdue * 8 + relevantGoal.priority * 12)
 }
 
-function getTotalCommitment(candidate) {
-  const commitment = Number(candidate?.commitment ?? 0)
+function getTotalTime(candidate) {
+  const duration = Number(candidate?.duration ?? 0)
   const travelMinutes = Number(candidate?.travelMinutes ?? 0)
-  return commitment + travelMinutes
+  return duration + travelMinutes
 }
 
 export function buildRecommendation({
@@ -189,23 +159,24 @@ export function buildRecommendation({
   const activeGoals = Array.isArray(goals) && goals.length ? goals : defaultGoals
 
   const candidates = [
-    { id: 'rest', title: 'Rest', duration: 0, commitment: 0, exerciseName: 'Rest', intensity: 'Rest' },
-    ...baseExercisePool.flatMap((exercise) => {
-      const variants = Array.isArray(exercise.intensities) && exercise.intensities.length
-        ? exercise.intensities
-        : [{ label: exercise.name, duration: 45, commitment: 60 }]
+    { id: 'rest', title: 'Rest', duration: 0, travelMinutes: 0, exerciseName: 'Rest' },
+    ...baseExercisePool.map((exercise) => {
+      const travelMinutes = Number(exercise.travelMinutes || 0)
+      const minDuration = Number(exercise.minDuration ?? exercise.duration ?? 45)
+      const maxDuration = Math.max(minDuration, Number(exercise.maxDuration ?? exercise.duration ?? minDuration))
+      const availableExerciseMinutes = Math.max(0, safeAvailable - travelMinutes)
 
-      return variants.map((variant, index) => ({
-        id: `${normalizeName(exercise.name)}-${normalizeName(variant.label || exercise.name)}-${index}`,
-        title: `${exercise.name}: ${variant.label}`,
-        duration: Number(variant.duration ?? 45),
-        commitment: Number(variant.commitment ?? (Number(variant.duration ?? 45) + 15)),
+      return {
+        id: normalizeName(exercise.name),
+        title: exercise.name,
+        duration: Math.min(maxDuration, Math.max(minDuration, availableExerciseMinutes)),
+        minDuration,
+        maxDuration,
         exerciseName: exercise.name,
-        intensity: variant.label,
         activity: exercise.activity || exercise.name,
-        travelMinutes: Number(exercise.travelMinutes || 0),
+        travelMinutes,
         muscles: exercise.muscles || [],
-      }))
+      }
     }),
   ]
 
@@ -214,20 +185,25 @@ export function buildRecommendation({
     const goalMatch = activeGoals.find((goal) => matchGoal(goal, candidate.exerciseName || candidate.activity || candidate.title))
 
     let score = 0
+    const breakdown = {}
     const reasonBits = []
 
     if (candidate.id === 'rest') {
       const recoveryScore = energy === 'cooked' ? (safeAvailable < 30 ? 82 : 16) : 30
+      breakdown['Recovery'] = recoveryScore
       return {
         ...candidate,
         score: recoveryScore,
+        breakdown,
+        calculation: `${recoveryScore} = ${recoveryScore}`,
         reason: 'Your body is signalling recovery today, so rest is a sensible option.',
       }
     }
 
-    const totalCommitment = getTotalCommitment(candidate)
-    if (totalCommitment > safeAvailable) {
+    const totalTime = getTotalTime(candidate)
+    if (totalTime > safeAvailable) {
       score -= 220
+      breakdown['Time fit'] = -220
       reasonBits.push('it does not fit your available time')
     }
 
@@ -235,12 +211,14 @@ export function buildRecommendation({
     const travelMinutesPenalty = Math.min(60, Number(candidate.travelMinutes || 0) / 2)
     const totalTravelPenalty = travelPenaltyValue + travelMinutesPenalty
     score -= totalTravelPenalty
+    breakdown['Travel'] = -totalTravelPenalty
     if (totalTravelPenalty > 0) {
       reasonBits.push('travel and setup time matter for this session')
     }
 
     const energyBonus = energyFit[energy]?.[candidate.exerciseName] ?? 0
     score += energyBonus
+    breakdown['Energy fit'] = energyBonus
     if (energyBonus < 0) {
       reasonBits.push('your energy is not well matched to this kind of session')
     }
@@ -252,45 +230,56 @@ export function buildRecommendation({
 
     if (matchTarget) {
       score += 24
+      breakdown['Preference'] = 24
     } else if (preferenceList.length > 0) {
       score -= 12
+      breakdown['Preference'] = -12
       reasonBits.push('it does not match what you fancy')
     }
 
     if (goalMatch) {
-      score += goalMatch.priority * 8
+      const goalPriorityScore = goalMatch.priority * 8
+      score += goalPriorityScore
+      breakdown['Goal priority'] = goalPriorityScore
     }
 
     const maintenanceDebt = getMaintenanceDebt(activeGoals, recentActivity, candidate.exerciseName)
     if (maintenanceDebt > 0) {
       score += maintenanceDebt
+      breakdown['Maintenance debt'] = maintenanceDebt
       reasonBits.push('this is overdue and a key priority for you')
     }
 
     const recent = recentActivity.find((item) => item.activity && String(item.activity).toLowerCase() === String(candidate.exerciseName || '').toLowerCase())
     if (recent && recent.daysAgo && recent.daysAgo >= 4) {
       score += 10
+      breakdown['Recency'] = 10
     }
     if (recent && recent.daysAgo && recent.daysAgo <= 2 && candidate.exerciseName === 'Climbing') {
       score -= 18
+      breakdown['Recency clamp'] = -18
     }
 
     if (candidate.exerciseName === 'Walking' && (energy === 'cooked' || safeAvailable <= 30)) {
       score += 22
+      breakdown['Walk bonus'] = 22
     }
     if (candidate.exerciseName === 'Climbing' && safeAvailable < 120) {
       score -= 28
+      breakdown['Short window penalty'] = -28
     }
 
     const sorenessPenalty = recovery?.soreness ?? {}
     const soreKey = Object.entries(sorenessPenalty).find(([, value]) => value === 'very-sore' || value === 'quite-sore')
     if (soreKey && ['Running', 'Weight training', 'Climbing'].includes(candidate.exerciseName)) {
       score -= 20
+      breakdown['Recovery soreness'] = -20
       reasonBits.push('your recovery is still a bit behind')
     }
 
     const timeFit = Math.max(0, 18 - Math.abs(candidate.duration - safeAvailable) / 4)
     score += timeFit
+    breakdown['Duration fit'] = timeFit
 
     const musclePreference = musclePreferences?.[0]
     if (musclePreference && musclePreference !== 'no-preference' && musclePreference !== 'full-body') {
@@ -299,6 +288,7 @@ export function buildRecommendation({
       )
       if (matchesExerciseMuscle) {
         score += 8
+        breakdown['Muscle match'] = 8
       }
     }
 
@@ -313,10 +303,22 @@ export function buildRecommendation({
       candidate,
     })
 
-    return { ...candidate, score, reason: explanation }
+    const calculation = Object.values(breakdown).reduce(
+      (expression, value) => `${expression} ${value >= 0 ? '+' : '-'} ${Math.abs(value)}`,
+      '0',
+    )
+
+    return { ...candidate, score, breakdown, calculation: `${calculation} = ${score}`, reason: explanation }
   })
 
-  const validCandidates = scored.filter((candidate) => candidate.id === 'rest' || getTotalCommitment(candidate) <= safeAvailable)
+  const validCandidates = scored.filter((candidate) => candidate.id === 'rest' || getTotalTime(candidate) <= safeAvailable)
+  const debug = [...scored].sort((a, b) => b.score - a.score).map((candidate) => ({
+    title: candidate.title,
+    score: candidate.score,
+    valid: candidate.id === 'rest' || getTotalTime(candidate) <= safeAvailable,
+    breakdown: candidate.breakdown || {},
+    calculation: candidate.calculation || `${candidate.score} = ${candidate.score}`,
+  }))
   const sorted = validCandidates.sort((a, b) => b.score - a.score)
   const winner = sorted[0]
   const alternatives = sorted.filter((candidate) => candidate.id !== winner.id).slice(0, 3)
@@ -324,14 +326,15 @@ export function buildRecommendation({
   return {
     title: winner.title,
     duration: winner.duration,
-    commitment: winner.commitment,
+    totalTime: getTotalTime(winner),
     reason: winner.reason,
     alternatives: alternatives.map((item) => ({
       title: item.title,
       duration: item.duration,
-      commitment: item.commitment,
+      totalTime: getTotalTime(item),
       reason: item.reason,
     })),
+    debug,
   }
 }
 
