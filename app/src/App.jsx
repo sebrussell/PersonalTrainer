@@ -70,6 +70,20 @@ function getRecentActivity(history) {
   }))
 }
 
+function getTargetMinutes(goal, targetSessions) {
+  if (Object.prototype.hasOwnProperty.call(goal, 'targetMinutes')) {
+    if (goal.targetMinutes === null || goal.targetMinutes === '') {
+      return null
+    }
+
+    return Math.max(0, Number(goal.targetMinutes) || 0)
+  }
+
+  const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
+  const maxDuration = Number(goal.maxDuration ?? goal.duration ?? minDuration)
+  return Math.round(((minDuration + maxDuration) / 2) * targetSessions)
+}
+
 function getWeeklyProgress(goals, history) {
   const now = new Date()
   const weekStart = new Date(now)
@@ -87,9 +101,7 @@ function getWeeklyProgress(goals, history) {
       return completedAt >= weekStart && goalKeys.some((key) => activity === key)
     })
     const targetSessions = Math.max(0, Number(goal.targetFrequency) || 0)
-    const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
-    const maxDuration = Number(goal.maxDuration ?? goal.duration ?? minDuration)
-    const targetMinutes = Math.round(((minDuration + maxDuration) / 2) * targetSessions)
+    const targetMinutes = getTargetMinutes(goal, targetSessions)
     const completedMinutes = sessions.reduce((total, session) => total + (Number(session.duration) || 0), 0)
 
     return {
@@ -180,7 +192,10 @@ const seededGoals = [
     minDuration: 20,
     maxDuration: 60,
   },
-]
+].map((goal) => ({
+  ...goal,
+  targetMinutes: getTargetMinutes(goal, Math.max(0, Number(goal.targetFrequency) || 0)),
+}))
 
 const defaultSettings = {
   availableMinutes: 45,
@@ -262,6 +277,9 @@ function readSavedSettings() {
             ...goalWithoutIntensities,
             minDuration: Number(goal.minDuration ?? goal.duration ?? firstIntensity?.duration ?? 45),
             maxDuration: Number(goal.maxDuration ?? goal.duration ?? firstIntensity?.duration ?? 45),
+            targetMinutes: Object.prototype.hasOwnProperty.call(goal, 'targetMinutes')
+              ? goal.targetMinutes
+              : getTargetMinutes(goalWithoutIntensities, Math.max(0, Number(goal.targetFrequency) || 0)),
           }
         })
       : defaultSettings.goals
@@ -401,7 +419,6 @@ function App() {
           }
         }
 
-        const withoutAnything = current[key].filter((item) => item !== 'Anything')
         return {
           ...current,
           [key]: withoutAnything.includes(value)
@@ -1002,6 +1019,18 @@ function App() {
                   </label>
 
                   <label>
+                    <span>Minutes target (clear for sessions only)</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="2000"
+                      placeholder={String(getTargetMinutes(goal, Math.max(0, Number(goal.targetFrequency) || 0)) ?? '')}
+                      value={goal.targetMinutes ?? ''}
+                      onChange={(event) => updateGoal(index, 'targetMinutes', event.target.value === '' ? null : readNumberInput(event.target.value))}
+                    />
+                  </label>
+
+                  <label>
                     <span>Travel time</span>
                     <input
                       type="number"
@@ -1068,13 +1097,17 @@ function App() {
                     <div className="progress-track" aria-label={`${goal.name} sessions progress`}>
                       <span style={{ width: `${sessionPercent}%` }} />
                     </div>
-                    <div className="progress-heading progress-minutes-heading">
-                      <span>Minutes</span>
-                      <span>{goal.completedMinutes} / {goal.targetMinutes} min</span>
-                    </div>
-                    <div className="progress-track minutes" aria-label={`${goal.name} minutes progress`}>
-                      <span style={{ width: `${minutePercent}%` }} />
-                    </div>
+                    {goal.targetMinutes !== null ? (
+                      <>
+                        <div className="progress-heading progress-minutes-heading">
+                          <span>Minutes</span>
+                          <span>{goal.completedMinutes} / {goal.targetMinutes} min</span>
+                        </div>
+                        <div className="progress-track minutes" aria-label={`${goal.name} minutes progress`}>
+                          <span style={{ width: `${minutePercent}%` }} />
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 )
               })}
