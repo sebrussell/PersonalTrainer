@@ -33,14 +33,27 @@ function getOrdinal(value) {
 }
 
 export function buildWeeklyPlan({ goals, progress, slots, fromDayIndex = 0 }) {
-  const progressByGoal = new Map(progress.map((item) => [item.name.toLowerCase(), item.sessions]))
+  const progressByGoal = new Map(progress.map((item) => [String(item.name).toLowerCase(), item]))
   const orderedGoals = [...goals]
-    .map((goal) => ({
-      ...goal,
-      completedSessions: progressByGoal.get(String(goal.name).toLowerCase()) || 0,
-      targetSessions: Number(goal.targetFrequency) || 0,
-      remaining: Math.max(0, (Number(goal.targetFrequency) || 0) - (progressByGoal.get(String(goal.name).toLowerCase()) || 0)),
-    }))
+    .map((goal) => {
+      const entry = progressByGoal.get(String(goal.name).toLowerCase()) || {}
+      const targetSessions = Number(goal.targetFrequency) > 0 ? Number(goal.targetFrequency) : 0
+      const targetMinutes = Number(goal.targetMinutes ?? 0)
+      const completedSessions = Number(entry.sessions || 0)
+      const completedMinutes = Number(entry.completedMinutes || 0)
+      const remainingSessions = Math.max(0, targetSessions - completedSessions)
+      const remainingMinutes = targetMinutes > 0 ? Math.max(0, targetMinutes - completedMinutes) : 0
+
+      return {
+        ...goal,
+        completedSessions,
+        completedMinutes,
+        targetSessions,
+        targetMinutes,
+        remaining: targetSessions > 0 ? remainingSessions : remainingMinutes > 0 ? 1 : 0,
+        remainingMinutes,
+      }
+    })
     .filter((goal) => goal.remaining > 0)
     .sort((first, second) => (Number(second.priority) || 0) - (Number(first.priority) || 0))
   const availableSlots = slots
@@ -84,7 +97,9 @@ export function buildWeeklyPlan({ goals, progress, slots, fromDayIndex = 0 }) {
       duration: timing.duration,
       totalTime: timing.totalTime,
       optional,
-      rationale: `Target ${goal.targetSessions}: this is the ${getOrdinal(sessionNumber)} ${goal.activity || goal.name} session of the week.`,
+      rationale: goal.targetSessions > 0
+        ? `Target ${goal.targetSessions}: this is the ${getOrdinal(sessionNumber)} ${goal.activity || goal.name} session of the week.`
+        : `Target ${goal.targetMinutes || 0} min: this helps you move toward your ${goal.activity || goal.name} time goal for the week.`,
     })
   }
 
@@ -100,15 +115,16 @@ export function buildWeeklyPlan({ goals, progress, slots, fromDayIndex = 0 }) {
       const selected = chooseSlot(goal, false)
       if (selected) {
         addAssignment(goal, selected, false)
-        remainingByGoal.set(goal.name, remainingByGoal.get(goal.name) - 1)
+        remainingByGoal.set(goal.name, Math.max(0, remainingByGoal.get(goal.name) - 1))
         placedSession = true
       }
     })
   }
 
   orderedGoals.forEach((goal) => {
+    const targetCount = goal.targetSessions > 0 ? goal.remaining : 1
     let assignedCount = assignments.filter((assignment) => assignment.goalName === goal.name).length
-    while (assignedCount < goal.remaining) {
+    while (assignedCount < targetCount) {
       const selected = chooseSlot(goal, true, true)
       if (!selected) {
         break

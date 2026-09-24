@@ -36,8 +36,9 @@ export const defaultGoals = [
     name: 'Walking',
     activity: 'Walking',
     priority: 2,
-    targetFrequency: 4,
-    minimumFrequency: 2,
+    targetFrequency: null,
+    minimumFrequency: 0,
+    targetMinutes: 180,
     travelMinutes: 5,
     muscles: ['Legs', 'Core'],
     minDuration: 15,
@@ -120,8 +121,9 @@ function getMaintenanceDebt(goals, recentActivity, candidateType) {
     return 0
   }
 
+  const targetFrequency = Number(relevantGoal.targetFrequency) || 0
   const last = recentActivity.find((item) => matchGoal({ name: item.activity }, candidateType))
-  const daysAgo = last?.daysAgo ?? relevantGoal.targetFrequency * 4 + 4
+  const daysAgo = last?.daysAgo ?? (targetFrequency > 0 ? targetFrequency * 4 + 4 : 12)
   const overdue = Math.max(0, daysAgo - 3)
   return Math.min(180, overdue * 8 + relevantGoal.priority * 12)
 }

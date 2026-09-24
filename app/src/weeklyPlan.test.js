@@ -79,6 +79,18 @@ describe('buildWeeklyPlan', () => {
     expect(plan[0].rationale).toContain('Target 3: this is the 2nd Running session')
   })
 
+  it('supports time-based goals without a target number of sessions', () => {
+    const plan = buildWeeklyPlan({
+      goals: [{ name: 'Walking', activity: 'Walking', priority: 2, targetMinutes: 180, minDuration: 20, maxDuration: 60, travelMinutes: 5 }],
+      progress: [{ name: 'Walking', sessions: 0, completedMinutes: 0 }],
+      slots: [{ id: 'mon-walk', day: 'Monday', label: 'Morning walk', minutes: 120, likelihood: 'high' }],
+    })
+
+    expect(plan).toHaveLength(1)
+    expect(plan[0]).toMatchObject({ goalName: 'Walking', totalTime: 65 })
+    expect(plan[0].rationale).toContain('180 min')
+  })
+
   it('only uses today and future slots when replanning midweek', () => {
     const plan = buildWeeklyPlan({
       goals: [{ name: 'Running', priority: 4, targetFrequency: 3, minDuration: 20, maxDuration: 60, travelMinutes: 15 }],

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import { buildRecommendation } from './scheduler'
-import { buildWeeklyPlan } from './weeklyPlan'
 
 const timeOptions = [
   { value: 20, label: '20 min' },
@@ -38,21 +37,6 @@ const likelihoodOptions = [
   { value: 'medium', label: 'Possible' },
   { value: 'low', label: 'Optional' },
 ]
-const dayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const defaultAvailabilitySlots = [
-  { day: 'Monday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
-  { day: 'Monday', label: 'Post-work', minutes: 60, likelihood: 'high' },
-  { day: 'Tuesday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
-  { day: 'Tuesday', label: 'Post-work', minutes: 120, likelihood: 'high' },
-  { day: 'Wednesday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
-  { day: 'Wednesday', label: 'Post-work', minutes: 60, likelihood: 'high' },
-  { day: 'Thursday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
-  { day: 'Thursday', label: 'Post-work', minutes: 60, likelihood: 'high' },
-  { day: 'Friday', label: 'Pre-work', minutes: 45, likelihood: 'medium' },
-  { day: 'Friday', label: 'Post-work', minutes: 60, likelihood: 'high' },
-  { day: 'Saturday', label: 'Weekend', minutes: 90, likelihood: 'high' },
-  { day: 'Sunday', label: 'Weekend', minutes: 60, likelihood: 'medium' },
-]
 
 function readNumberInput(value) {
   return value === '' ? '' : Number(value)
@@ -67,55 +51,6 @@ function sortHistory(sessions) {
 
 function formatAvailableTime(minutes) {
   return Number(minutes) >= 480 ? 'all day' : `${minutes} min`
-}
-
-function getWeekStartKey(date = new Date()) {
-  const weekStart = new Date(date)
-  const day = weekStart.getDay()
-  weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1))
-  weekStart.setHours(0, 0, 0, 0)
-  return weekStart.toISOString().slice(0, 10)
-}
-
-function cloneAvailabilitySlots(slots) {
-  return slots.map((slot) => ({ ...slot }))
-}
-
-function normalizeAvailabilitySlots(slots) {
-  return slots.map((slot, index) => ({ ...slot, id: slot.id || `slot-${index}` }))
-}
-
-function mergeMissingDefaultSlots(slots) {
-  const normalized = normalizeAvailabilitySlots(slots)
-  const existingDays = new Set(normalized.map((slot) => slot.day))
-  const missingDefaults = defaultAvailabilitySlots
-    .filter((slot) => !existingDays.has(slot.day))
-    .map((slot, index) => ({ ...slot, id: `default-${slot.day}-${index}` }))
-
-  return [...normalized, ...missingDefaults].sort((first, second) => {
-    const firstDay = dayOptions.indexOf(first.day)
-    const secondDay = dayOptions.indexOf(second.day)
-    if (firstDay !== secondDay) {
-      return firstDay - secondDay
-    }
-
-    const firstPreWork = String(first.label).toLowerCase().includes('pre')
-    const secondPreWork = String(second.label).toLowerCase().includes('pre')
-    return Number(secondPreWork) - Number(firstPreWork)
-  })
-}
-
-function readWeeklyPlans() {
-  if (typeof window === 'undefined') {
-    return {}
-  }
-
-  try {
-    const raw = window.localStorage.getItem('personal-trainer-weekly-plans')
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
 }
 
 function readSessionHistory() {
@@ -223,8 +158,8 @@ const seededGoals = [
     name: 'Walking',
     activity: 'Walking',
     priority: 2,
-    targetFrequency: 4,
-    minimumFrequency: 2,
+    targetFrequency: null,
+    targetMinutes: 180,
     travelMinutes: 5,
     muscles: ['Legs', 'Core'],
     minDuration: 15,
@@ -277,7 +212,7 @@ const defaultSettings = {
   recovery: {
     soreness: Object.fromEntries(sorenessAreas.map((area) => [area, 'not-sore'])),
   },
-  availabilityDefaults: defaultAvailabilitySlots,
+  availabilityDefaults: [],
   goals: seededGoals,
 }
 
@@ -322,16 +257,6 @@ const setupQuestions = [
     key: 'travelPreference',
     options: travelOptions.map((option) => ({ value: option.value, label: option.label })),
   },
-  {
-    type: 'single',
-    title: 'How should we start your weekly availability?',
-    description: 'Use the suggested weekly slots or customize them before building your first plan.',
-    key: 'availabilityMode',
-    options: [
-      { value: 'default', label: 'Use the suggested slots' },
-      { value: 'custom', label: 'Customize my slots' },
-    ],
-  },
 ]
 
 function readSavedSettings() {
@@ -369,9 +294,6 @@ function readSavedSettings() {
     return {
       ...defaultSettings,
       ...saved,
-      availabilityDefaults: Array.isArray(saved.availabilityDefaults)
-        ? saved.availabilityDefaults
-        : defaultAvailabilitySlots,
       recovery: { ...defaultSettings.recovery, soreness },
       goals,
     }
@@ -398,8 +320,6 @@ function createCustomGoal(name) {
     name: trimmed,
     activity: trimmed,
     priority: 3,
-    targetFrequency: 1,
-    minimumFrequency: 1,
     travelMinutes: 15,
     muscles: ['Full body'],
     minDuration: 15,
@@ -410,28 +330,12 @@ function createCustomGoal(name) {
 function App() {
   const [settings, setSettings] = useState(readSavedSettings)
   const [history, setHistory] = useState(readSessionHistory)
-  const [weeklyPlans, setWeeklyPlans] = useState(readWeeklyPlans)
   const [editingHistoryIndex, setEditingHistoryIndex] = useState(null)
-  const [activeTab, setActiveTab] = useState(() => (
-    readWeeklyPlans()[getWeekStartKey()] ? 'today' : 'plan'
-  ))
+  const [activeTab, setActiveTab] = useState('today')
   const [showSetup, setShowSetup] = useState(() => !readSetupComplete())
   const [setupStep, setSetupStep] = useState(0)
   const [setupAnswers, setSetupAnswers] = useState({})
   const [customExerciseInput, setCustomExerciseInput] = useState('')
-  const currentWeekKey = getWeekStartKey()
-  const currentWeeklyPlan = weeklyPlans[currentWeekKey]
-    ? { ...weeklyPlans[currentWeekKey], slots: mergeMissingDefaultSlots(weeklyPlans[currentWeekKey].slots || []) }
-    : {
-        weekStart: currentWeekKey,
-        slots: mergeMissingDefaultSlots(cloneAvailabilitySlots(settings.availabilityDefaults || defaultAvailabilitySlots)),
-        assignments: [],
-      }
-  const todayIndex = (new Date().getDay() + 6) % 7
-  const plannedTodayKey = currentWeeklyPlan.assignments
-    .filter((assignment) => !assignment.optional && assignment.dayIndex === todayIndex)
-    .map((assignment) => assignment.activity || assignment.goalName)
-    .join('|')
 
   useEffect(() => {
     window.localStorage.setItem('personal-trainer-settings', JSON.stringify(settings))
@@ -446,7 +350,7 @@ function App() {
     goals: settings.goals,
     recentActivity: getRecentActivity(history),
     recovery: settings.recovery,
-    plannedExercises: plannedTodayKey ? plannedTodayKey.split('|') : [],
+    plannedExercises: [],
   })
   const recommendationOptions = [recommendation, ...recommendation.alternatives]
   const [recommendationSelection, setRecommendationSelection] = useState({
@@ -503,7 +407,7 @@ function App() {
       window.localStorage.setItem('personal-trainer-settings', JSON.stringify(nextSettings))
       window.localStorage.setItem('personal-trainer-setup-complete', 'true')
     }
-    setActiveTab(setupAnswers.availabilityMode === 'custom' ? 'plan' : 'today')
+    setActiveTab('today')
     setShowSetup(false)
   }
 
@@ -587,7 +491,7 @@ function App() {
           name: `Exercise ${current.goals.length + 1}`,
           activity: 'Running',
           priority: 3,
-          targetFrequency: 2,
+          targetFrequency: null,
           minimumFrequency: 1,
           travelMinutes: 15,
           muscles: ['Legs'],
@@ -973,13 +877,6 @@ function App() {
         </button>
         <button
           type="button"
-          className={activeTab === 'plan' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('plan')}
-        >
-          Weekly plan
-        </button>
-        <button
-          type="button"
           className={activeTab === 'history' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('history')}
         >
@@ -1229,32 +1126,6 @@ function App() {
       ) : activeTab === 'settings' ? (
         <main className="planner settings-tab-page">
           <details className="card settings-section" open>
-            <summary>Availability defaults</summary>
-            <div className="settings-section-body">
-            <div className="card-header-row">
-              <div>
-                <p className="field-help">These are copied into each new week's plan. You can override them week by week.</p>
-              </div>
-              <button type="button" className="primary-button small" onClick={addAvailabilityDefault}>+ Add slot</button>
-            </div>
-            <div className="availability-list">
-              {settings.availabilityDefaults.map((slot, index) => (
-                <div className="availability-row" key={`${slot.day}-${slot.label}-${index}`}>
-                  <select value={slot.day} onChange={(event) => updateAvailabilityDefault(index, 'day', event.target.value)}>
-                    {dayOptions.map((day) => <option key={day} value={day}>{day}</option>)}
-                  </select>
-                  <input type="text" value={slot.label} onChange={(event) => updateAvailabilityDefault(index, 'label', event.target.value)} />
-                  <input type="number" min="0" max="480" value={slot.minutes} onChange={(event) => updateAvailabilityDefault(index, 'minutes', readNumberInput(event.target.value))} />
-                  <select value={slot.likelihood} onChange={(event) => updateAvailabilityDefault(index, 'likelihood', event.target.value)}>
-                    {likelihoodOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                  <button type="button" className="remove-button" onClick={() => removeAvailabilityDefault(index)}>Remove</button>
-                </div>
-              ))}
-            </div>
-            </div>
-          </details>
-          <details className="card settings-section" open>
             <summary>Exercise types</summary>
             <div className="settings-section-body">
             <div className="card-header-row">
@@ -1301,13 +1172,14 @@ function App() {
                   </label>
 
                   <label>
-                    <span>Target / week</span>
+                    <span>Target / week (optional)</span>
                     <input
                       type="number"
                       min="0"
                       max="7"
-                      value={goal.targetFrequency}
-                      onChange={(event) => updateGoal(index, 'targetFrequency', readNumberInput(event.target.value))}
+                      value={goal.targetFrequency ?? ''}
+                      placeholder="Optional"
+                      onChange={(event) => updateGoal(index, 'targetFrequency', event.target.value === '' ? null : readNumberInput(event.target.value))}
                     />
                   </label>
 
@@ -1440,23 +1312,33 @@ function App() {
             <h2>Weekly progress</h2>
             <div className="progress-list">
               {weeklyProgress.map((goal) => {
-                const sessionPercent = goal.targetSessions
+                const hasSessionTarget = Number(goal.targetSessions) > 0
+                const sessionPercent = hasSessionTarget
                   ? Math.min(100, (goal.sessions / goal.targetSessions) * 100)
                   : 0
-                const minutePercent = goal.targetMinutes
+                const minutePercent = goal.targetMinutes !== null && goal.targetMinutes !== undefined && goal.targetMinutes > 0
                   ? Math.min(100, (goal.completedMinutes / goal.targetMinutes) * 100)
                   : 0
 
                 return (
                   <div key={goal.name} className="progress-item">
-                    <div className="progress-heading">
-                      <strong>{goal.name}</strong>
-                      <span>{goal.sessions} / {goal.targetSessions} sessions</span>
-                    </div>
-                    <div className="progress-track" aria-label={`${goal.name} sessions progress`}>
-                      <span style={{ width: `${sessionPercent}%` }} />
-                    </div>
-                    {goal.targetMinutes !== null ? (
+                    {hasSessionTarget ? (
+                      <>
+                        <div className="progress-heading">
+                          <strong>{goal.name}</strong>
+                          <span>{goal.sessions} / {goal.targetSessions} sessions</span>
+                        </div>
+                        <div className="progress-track" aria-label={`${goal.name} sessions progress`}>
+                          <span style={{ width: `${sessionPercent}%` }} />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="progress-heading">
+                        <strong>{goal.name}</strong>
+                        <span>Time goal</span>
+                      </div>
+                    )}
+                    {goal.targetMinutes !== null && goal.targetMinutes !== undefined && goal.targetMinutes > 0 ? (
                       <>
                         <div className="progress-heading progress-minutes-heading">
                           <span>Minutes</span>
