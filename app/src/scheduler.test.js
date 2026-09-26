@@ -230,13 +230,36 @@ describe('buildRecommendation', () => {
     expect(recommendation.reason).toMatch(/60 min.*soreness in your legs.*lighter 45-min running session/i)
   })
 
+  it('keeps a full session at mild soreness and recommends warming up', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 60,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['running'],
+      recovery: { soreness: { Legs: 0.2 } },
+      goals: [{
+        name: 'Running',
+        priority: 4,
+        targetFrequencyFortnight: 4,
+        travelMinutes: 0,
+        minDuration: 20,
+        maxDuration: 60,
+        muscleUse: { Legs: 1 },
+      }],
+    })
+
+    expect(recommendation.title).toBe('Running')
+    expect(recommendation.duration).toBe(60)
+    expect(recommendation.reason).toMatch(/soreness in your legs.*warm up properly.*full session/i)
+  })
+
   it('rounds a 99-minute session to the nearest quarter hour', () => {
     const recommendation = buildRecommendation({
       availableMinutes: 120,
       energy: 'good',
       travelPreference: 'happy-to-travel',
       activityPreferences: ['running'],
-      recovery: { soreness: { Legs: 0.2333333333 } },
+      recovery: { soreness: { Legs: 0.3866666667 } },
       goals: [{
         name: 'Running',
         priority: 5,

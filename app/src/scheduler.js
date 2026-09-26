@@ -1,5 +1,7 @@
 import { getMuscleUse, getSorenessValue, normalizeMuscleUse } from './muscleModel'
 
+const mildSorenessThreshold = 0.2
+
 export const defaultGoals = [
   {
     name: 'Climbing',
@@ -175,13 +177,14 @@ function getSorenessProfile(candidate, recovery) {
     const muscleUse = getMuscleUse(candidate.muscleUse, area)
     if (soreness > 0 && muscleUse > 0) {
       profile.affectedAreas.push(area)
+      profile.maxSoreness = Math.max(profile.maxSoreness, soreness)
     }
     if (soreness >= 1 && muscleUse > 0) {
       profile.fullySoreAreas.push(area)
     }
     profile.risk = Math.max(profile.risk, soreness * muscleUse)
     return profile
-  }, { risk: 0, affectedAreas: [], fullySoreAreas: [] })
+  }, { risk: 0, maxSoreness: 0, affectedAreas: [], fullySoreAreas: [] })
 }
 
 export function buildRecommendation({
@@ -223,7 +226,8 @@ export function buildRecommendation({
       const availableDuration = Math.min(maxDuration, availableExerciseMinutes)
       const fittedDuration = Math.max(minDuration, availableDuration)
       const baselineDuration = roundSessionDuration(fittedDuration, minDuration, maxDuration, availableExerciseMinutes)
-      const sorenessReducedDuration = fittedDuration - ((fittedDuration - minDuration) * sorenessProfile.risk)
+      const durationRisk = Math.max(0, (sorenessProfile.risk - mildSorenessThreshold) / (1 - mildSorenessThreshold))
+      const sorenessReducedDuration = fittedDuration - ((fittedDuration - minDuration) * durationRisk)
       const duration = roundSessionDuration(sorenessReducedDuration, minDuration, maxDuration, availableExerciseMinutes)
 
       return {
@@ -233,7 +237,7 @@ export function buildRecommendation({
         minDuration,
         maxDuration,
         sorenessProfile,
-        sorenessAdjusted: sorenessProfile.risk > 0 && duration < baselineDuration,
+        sorenessAdjusted: durationRisk > 0 && duration < baselineDuration,
         exerciseName: exercise.name,
         activity: String(exercise.activity || '').trim() || exercise.name,
         travelMinutes,
@@ -445,6 +449,11 @@ export function buildRecommendation({
 }
 
 function buildReason({ availableMinutes, energy, travelPreference, activity, reasonBits, goalMatch, goalProgress, preferenceList, candidate, sorenessProfile }) {
+  if (sorenessProfile.maxSoreness > 0 && sorenessProfile.maxSoreness <= mildSorenessThreshold) {
+    const areas = sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')
+    return `You have some soreness in your ${areas}; warm up properly and see how you feel. If you feel better after warming up, a full session should be fine.`
+  }
+
   if (sorenessProfile.affectedAreas.length && candidate.sorenessAdjusted) {
     const areas = sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')
     const reason = `You have ${availableMinutes} min; soreness in your ${areas} suggests a lighter ${candidate.duration}-min ${activity.toLowerCase()} session.`
