@@ -157,6 +157,18 @@ function getTotalTime(candidate) {
   return duration + travelMinutes
 }
 
+function roundSessionDuration(duration, minDuration, maxDuration, availableDuration) {
+  const minQuarterHour = Math.ceil(minDuration / 15) * 15
+  const maxQuarterHour = Math.floor(Math.min(maxDuration, availableDuration) / 15) * 15
+  const roundedDuration = Math.round(duration / 15) * 15
+
+  if (minQuarterHour <= maxQuarterHour) {
+    return Math.min(maxQuarterHour, Math.max(minQuarterHour, roundedDuration))
+  }
+
+  return Math.max(minDuration, Math.min(maxDuration, availableDuration, roundedDuration))
+}
+
 function getSorenessProfile(candidate, recovery) {
   return Object.entries(recovery?.soreness ?? {}).reduce((profile, [area, value]) => {
     const soreness = getSorenessValue(value)
@@ -210,7 +222,9 @@ export function buildRecommendation({
       const sorenessProfile = getSorenessProfile({ muscleUse }, recovery)
       const availableDuration = Math.min(maxDuration, availableExerciseMinutes)
       const fittedDuration = Math.max(minDuration, availableDuration)
-      const duration = Math.round(fittedDuration - ((fittedDuration - minDuration) * sorenessProfile.risk))
+      const baselineDuration = roundSessionDuration(fittedDuration, minDuration, maxDuration, availableExerciseMinutes)
+      const sorenessReducedDuration = fittedDuration - ((fittedDuration - minDuration) * sorenessProfile.risk)
+      const duration = roundSessionDuration(sorenessReducedDuration, minDuration, maxDuration, availableExerciseMinutes)
 
       return {
         id: normalizeName(exercise.name),
@@ -219,6 +233,7 @@ export function buildRecommendation({
         minDuration,
         maxDuration,
         sorenessProfile,
+        sorenessAdjusted: sorenessProfile.risk > 0 && duration < baselineDuration,
         exerciseName: exercise.name,
         activity: String(exercise.activity || '').trim() || exercise.name,
         travelMinutes,
@@ -430,17 +445,30 @@ export function buildRecommendation({
 }
 
 function buildReason({ availableMinutes, energy, travelPreference, activity, reasonBits, goalMatch, goalProgress, preferenceList, candidate, sorenessProfile }) {
-  if (sorenessProfile.affectedAreas.length && goalProgress?.remainingSessions > 0) {
+  if (sorenessProfile.affectedAreas.length && candidate.sorenessAdjusted) {
     const areas = sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')
-    const progress = goalProgress.completedSessions === 0
-      ? `you have not done a ${activity.toLowerCase()} session this fortnight`
-      : `you have done ${goalProgress.completedSessions} of ${goalProgress.targetSessions} target sessions this fortnight`
+    const reason = `You have ${availableMinutes} min; soreness in your ${areas} suggests a lighter ${candidate.duration}-min ${activity.toLowerCase()} session.`
 
-    if (goalProgress.deficitRatio >= 0.5) {
-      return `You seem to have some soreness in your ${areas}, but ${progress}. If you feel up to it, I'd recommend a light session.`
+    if (goalProgress?.remainingSessions > 0 && goalProgress.deficitRatio >= 0.5) {
+      const done = goalProgress.completedSessions
+      const target = goalProgress.targetSessions
+      const progress = done === 0 ? `You're 0/${target} toward your fortnight target` : `You're ${done}/${target} toward your fortnight target`
+      return `${reason} ${progress}; try it light if you feel up to it.`
     }
 
-    return `You seem to have some soreness in your ${areas}, and ${progress}. This is still an option, but I'd rank it lower today.`
+    if (goalProgress?.remainingSessions > 0) {
+      return `${reason} You're ${goalProgress.completedSessions}/${goalProgress.targetSessions} toward your target, so I'd rank it lower, but it's still an option.`
+    }
+
+    return reason
+  }
+
+  if (sorenessProfile.affectedAreas.length && goalProgress?.remainingSessions > 0) {
+    const areas = sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')
+    if (goalProgress.deficitRatio >= 0.5) {
+      return `You have soreness in your ${areas}, but you're behind your fortnight target. If you feel up to it, try a light session.`
+    }
+    return `You have soreness in your ${areas}, and you're near your target; this is still an option, but I'd rank it lower today.`
   }
 
   const points = [`You have ${availableMinutes} minutes available`]

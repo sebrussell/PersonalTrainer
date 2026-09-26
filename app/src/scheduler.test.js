@@ -154,8 +154,8 @@ describe('buildRecommendation', () => {
     })
 
     expect(recommendation.title).toBe('Running')
-    expect(recommendation.duration).toBe(40)
-    expect(recommendation.totalTime).toBe(50)
+    expect(recommendation.duration).toBe(30)
+    expect(recommendation.totalTime).toBe(40)
   })
 
   it('scales sore-leg risk by each exercise muscle load', () => {
@@ -222,11 +222,35 @@ describe('buildRecommendation', () => {
 
     const running = recommendation.debug.find((item) => item.title === 'Running')
     expect(recommendation.title).toBe('Running')
-    expect(recommendation.duration).toBe(40)
-    expect(recommendation.totalTime).toBe(40)
+    expect(recommendation.duration).toBe(45)
+    expect(recommendation.totalTime).toBe(45)
     expect(running.valid).toBe(true)
     expect(running.sorenessRisk).toBe(0.5)
     expect(running.breakdown['Recovery soreness']).toBe(-30)
+    expect(recommendation.reason).toMatch(/60 min.*soreness in your legs.*lighter 45-min running session/i)
+  })
+
+  it('rounds a 99-minute session to the nearest quarter hour', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 120,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['running'],
+      recovery: { soreness: { Legs: 0.2333333333 } },
+      goals: [{
+        name: 'Running',
+        priority: 5,
+        targetFrequencyFortnight: null,
+        travelMinutes: 0,
+        minDuration: 30,
+        maxDuration: 120,
+        muscleUse: { Legs: 1 },
+      }],
+    })
+
+    expect(recommendation.title).toBe('Running')
+    expect(recommendation.duration).toBe(105)
+    expect(recommendation.totalTime).toBeLessThanOrEqual(120)
   })
 
   it('uses target deficit and priority to rank sore exercise options and explain the choice', () => {
@@ -262,7 +286,7 @@ describe('buildRecommendation', () => {
     expect(behindRunning.score).toBeGreaterThan(nearlyOnTargetRunning.score)
     expect(behindRunning.valid).toBe(true)
     expect(nearlyOnTargetRunning.valid).toBe(true)
-    expect(behind.reason).toMatch(/1 of 4 target sessions.*light session/i)
-    expect(nearlyOnTarget.reason).toMatch(/3 of 4 target sessions.*rank it lower/i)
+    expect(behind.reason).toMatch(/60 min.*lighter 45-min running session.*1\/4.*try it light/i)
+    expect(nearlyOnTarget.reason).toMatch(/3\/4.*rank it lower, but it's still an option/i)
   })
 })
