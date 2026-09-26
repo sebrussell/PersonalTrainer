@@ -187,6 +187,21 @@ describe('buildRecommendation', () => {
     expect(walking.breakdown['Recovery soreness']).toBe(-16)
   })
 
+  it('blocks every exercise that uses a maximally sore area, even at a low load', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 120,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['anything'],
+      recovery: { soreness: { Legs: 1 } },
+      goals: defaultGoals,
+    })
+
+    for (const title of ['Running', 'Swimming', 'Climbing', 'Walking']) {
+      expect(recommendation.debug.find((item) => item.title === title).valid).toBe(false)
+    }
+  })
+
   it('shortens the session and applies a gradual penalty at moderate soreness', () => {
     const recommendation = buildRecommendation({
       availableMinutes: 60,
@@ -212,5 +227,42 @@ describe('buildRecommendation', () => {
     expect(running.valid).toBe(true)
     expect(running.sorenessRisk).toBe(0.5)
     expect(running.breakdown['Recovery soreness']).toBe(-30)
+  })
+
+  it('uses target deficit and priority to rank sore exercise options and explain the choice', () => {
+    const settings = {
+      availableMinutes: 60,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['running'],
+      recovery: { soreness: { Legs: 0.4 } },
+      goals: [{
+        name: 'Running',
+        priority: 5,
+        targetFrequencyFortnight: 4,
+        travelMinutes: 0,
+        minDuration: 20,
+        maxDuration: 60,
+        muscleUse: { Legs: 0.9 },
+      }],
+    }
+    const behind = buildRecommendation({
+      ...settings,
+      recentActivity: [{ activity: 'Running', daysAgo: 3 }],
+    })
+    const nearlyOnTarget = buildRecommendation({
+      ...settings,
+      recentActivity: [1, 2, 3].map((daysAgo) => ({ activity: 'Running', daysAgo })),
+    })
+    const behindRunning = behind.debug.find((item) => item.title === 'Running')
+    const nearlyOnTargetRunning = nearlyOnTarget.debug.find((item) => item.title === 'Running')
+
+    expect(behindRunning.breakdown['Fortnight target gap']).toBe(45)
+    expect(nearlyOnTargetRunning.breakdown['Fortnight target gap']).toBe(15)
+    expect(behindRunning.score).toBeGreaterThan(nearlyOnTargetRunning.score)
+    expect(behindRunning.valid).toBe(true)
+    expect(nearlyOnTargetRunning.valid).toBe(true)
+    expect(behind.reason).toMatch(/1 of 4 target sessions.*light session/i)
+    expect(nearlyOnTarget.reason).toMatch(/3 of 4 target sessions.*rank it lower/i)
   })
 })

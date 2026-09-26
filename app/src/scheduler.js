@@ -129,16 +129,47 @@ function getMaintenanceDebt(goals, recentActivity, candidateType) {
   return Math.min(180, overdue * 8 + relevantGoal.priority * 12)
 }
 
+function getFortnightGoalProgress(goals, recentActivity, candidateType) {
+  const goal = goals.find((item) => matchGoal(item, candidateType))
+  const targetSessions = Math.max(0, Number(goal?.targetFrequencyFortnight) || 0)
+  if (!goal || targetSessions === 0) {
+    return null
+  }
+
+  const completedSessions = recentActivity.filter((item) => (
+    Number(item.daysAgo) >= 0
+    && Number(item.daysAgo) < 14
+    && matchGoal({ name: item.activity }, candidateType)
+  )).length
+  const remainingSessions = Math.max(0, targetSessions - completedSessions)
+
+  return {
+    targetSessions,
+    completedSessions,
+    remainingSessions,
+    deficitRatio: remainingSessions / targetSessions,
+  }
+}
+
 function getTotalTime(candidate) {
   const duration = Number(candidate?.duration ?? 0)
   const travelMinutes = Number(candidate?.travelMinutes ?? 0)
   return duration + travelMinutes
 }
 
-function getSorenessRisk(candidate, recovery) {
-  return Object.entries(recovery?.soreness ?? {}).reduce((highest, [area, value]) => (
-    Math.max(highest, getSorenessValue(value) * getMuscleUse(candidate.muscleUse, area))
-  ), 0)
+function getSorenessProfile(candidate, recovery) {
+  return Object.entries(recovery?.soreness ?? {}).reduce((profile, [area, value]) => {
+    const soreness = getSorenessValue(value)
+    const muscleUse = getMuscleUse(candidate.muscleUse, area)
+    if (soreness > 0 && muscleUse > 0) {
+      profile.affectedAreas.push(area)
+    }
+    if (soreness >= 1 && muscleUse > 0) {
+      profile.fullySoreAreas.push(area)
+    }
+    profile.risk = Math.max(profile.risk, soreness * muscleUse)
+    return profile
+  }, { risk: 0, affectedAreas: [], fullySoreAreas: [] })
 }
 
 export function buildRecommendation({
@@ -176,10 +207,10 @@ export function buildRecommendation({
       const maxDuration = Math.max(minDuration, Number(exercise.maxDuration ?? exercise.duration ?? minDuration))
       const availableExerciseMinutes = Math.max(0, safeAvailable - travelMinutes)
       const muscleUse = normalizeMuscleUse(exercise.muscleUse)
-      const sorenessRisk = getSorenessRisk({ muscleUse }, recovery)
+      const sorenessProfile = getSorenessProfile({ muscleUse }, recovery)
       const availableDuration = Math.min(maxDuration, availableExerciseMinutes)
       const fittedDuration = Math.max(minDuration, availableDuration)
-      const duration = Math.round(fittedDuration - ((fittedDuration - minDuration) * sorenessRisk))
+      const duration = Math.round(fittedDuration - ((fittedDuration - minDuration) * sorenessProfile.risk))
 
       return {
         id: normalizeName(exercise.name),
@@ -187,7 +218,7 @@ export function buildRecommendation({
         duration,
         minDuration,
         maxDuration,
-        sorenessRisk,
+        sorenessProfile,
         exerciseName: exercise.name,
         activity: String(exercise.activity || '').trim() || exercise.name,
         travelMinutes,
@@ -198,7 +229,9 @@ export function buildRecommendation({
 
   const scored = candidates.map((candidate) => {
     const preferenceList = activityPreferences.length ? activityPreferences : ['anything']
-    const goalMatch = activeGoals.find((goal) => matchGoal(goal, candidate.exerciseName || candidate.activity || candidate.title))
+    const candidateType = candidate.exerciseName || candidate.activity || candidate.title
+    const goalMatch = activeGoals.find((goal) => matchGoal(goal, candidateType))
+    const goalProgress = getFortnightGoalProgress(activeGoals, recentActivity, candidateType)
 
     let score = 0
     const breakdown = {}
@@ -279,6 +312,12 @@ export function buildRecommendation({
       breakdown['Goal priority'] = goalPriorityScore
     }
 
+    if (goalProgress?.remainingSessions > 0) {
+      const targetDeficitScore = Math.round(goalProgress.deficitRatio * (Number(goalMatch.priority) || 0) * 12)
+      score += targetDeficitScore
+      breakdown['Fortnight target gap'] = targetDeficitScore
+    }
+
     const maintenanceDebt = getMaintenanceDebt(activeGoals, recentActivity, candidate.exerciseName)
     if (maintenanceDebt > 0) {
       score += maintenanceDebt
@@ -305,8 +344,9 @@ export function buildRecommendation({
       breakdown['Short window penalty'] = -28
     }
 
-    const sorenessRisk = candidate.sorenessRisk ?? getSorenessRisk(candidate, recovery)
-    const sorenessBlocked = sorenessRisk >= 0.8
+    const sorenessProfile = candidate.sorenessProfile ?? getSorenessProfile(candidate, recovery)
+    const sorenessRisk = sorenessProfile.risk
+    const sorenessBlocked = sorenessRisk >= 0.8 || sorenessProfile.fullySoreAreas.length > 0
     const sorenessPenalty = sorenessBlocked ? -220 : -Math.round(sorenessRisk * 60)
     breakdown['Recovery soreness'] = sorenessPenalty
     score += sorenessPenalty
@@ -336,8 +376,10 @@ export function buildRecommendation({
       activity: candidate.title,
       reasonBits,
       goalMatch,
+      goalProgress,
       preferenceList,
       candidate,
+      sorenessProfile,
     })
 
     const calculation = Object.values(breakdown).reduce(
@@ -366,7 +408,7 @@ export function buildRecommendation({
     valid: candidate.id === 'rest' || (!candidate.completedToday && !candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable),
     breakdown: candidate.breakdown || {},
     calculation: candidate.calculation || `${candidate.score} = ${candidate.score}`,
-    sorenessRisk: candidate.sorenessRisk ?? 0,
+    sorenessRisk: candidate.sorenessProfile?.risk ?? 0,
   }))
   const sorted = validCandidates.sort((a, b) => b.score - a.score)
   const winner = sorted[0]
@@ -387,7 +429,20 @@ export function buildRecommendation({
   }
 }
 
-function buildReason({ availableMinutes, energy, travelPreference, activity, reasonBits, goalMatch, preferenceList, candidate }) {
+function buildReason({ availableMinutes, energy, travelPreference, activity, reasonBits, goalMatch, goalProgress, preferenceList, candidate, sorenessProfile }) {
+  if (sorenessProfile.affectedAreas.length && goalProgress?.remainingSessions > 0) {
+    const areas = sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')
+    const progress = goalProgress.completedSessions === 0
+      ? `you have not done a ${activity.toLowerCase()} session this fortnight`
+      : `you have done ${goalProgress.completedSessions} of ${goalProgress.targetSessions} target sessions this fortnight`
+
+    if (goalProgress.deficitRatio >= 0.5) {
+      return `You seem to have some soreness in your ${areas}, but ${progress}. If you feel up to it, I'd recommend a light session.`
+    }
+
+    return `You seem to have some soreness in your ${areas}, and ${progress}. This is still an option, but I'd rank it lower today.`
+  }
+
   const points = [`You have ${availableMinutes} minutes available`]
 
   if (energy === 'cooked') {
