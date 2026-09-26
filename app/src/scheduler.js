@@ -3,8 +3,8 @@ export const defaultGoals = [
     name: 'Climbing',
     activity: 'Climbing',
     priority: 5,
-    targetFrequency: 2,
-    minimumFrequency: 1,
+    targetFrequencyFortnight: 4,
+    targetMinutesFortnight: null,
     travelMinutes: 45,
     muscles: ['Back', 'Shoulders', 'Grip', 'Core'],
     minDuration: 60,
@@ -14,8 +14,8 @@ export const defaultGoals = [
     name: 'Swimming',
     activity: 'Swimming',
     priority: 3,
-    targetFrequency: 1,
-    minimumFrequency: 1,
+    targetFrequencyFortnight: 1,
+    targetMinutesFortnight: null,
     travelMinutes: 25,
     muscles: ['Shoulders', 'Core', 'Legs'],
     minDuration: 30,
@@ -25,8 +25,8 @@ export const defaultGoals = [
     name: 'Running',
     activity: 'Running',
     priority: 4,
-    targetFrequency: 3,
-    minimumFrequency: 1,
+    targetFrequencyFortnight: 6,
+    targetMinutesFortnight: null,
     travelMinutes: 15,
     muscles: ['Legs', 'Core'],
     minDuration: 20,
@@ -36,9 +36,8 @@ export const defaultGoals = [
     name: 'Walking',
     activity: 'Walking',
     priority: 2,
-    targetFrequency: null,
-    minimumFrequency: 0,
-    targetMinutes: 180,
+    targetFrequencyFortnight: null,
+    targetMinutesFortnight: 360,
     travelMinutes: 5,
     muscles: ['Legs', 'Core'],
     minDuration: 15,
@@ -48,8 +47,8 @@ export const defaultGoals = [
     name: 'Cycling',
     activity: 'Cycling',
     priority: 2,
-    targetFrequency: 1,
-    minimumFrequency: 1,
+    targetFrequencyFortnight: 2,
+    targetMinutesFortnight: null,
     travelMinutes: 20,
     muscles: ['Legs', 'Core'],
     minDuration: 30,
@@ -59,8 +58,8 @@ export const defaultGoals = [
     name: 'Weight training',
     activity: 'Weight training',
     priority: 4,
-    targetFrequency: 2,
-    minimumFrequency: 1,
+    targetFrequencyFortnight: 6,
+    targetMinutesFortnight: null,
     travelMinutes: 15,
     muscles: ['Chest', 'Back', 'Shoulders', 'Legs'],
     minDuration: 30,
@@ -70,8 +69,8 @@ export const defaultGoals = [
     name: 'Yoga',
     activity: 'Yoga',
     priority: 2,
-    targetFrequency: 2,
-    minimumFrequency: 1,
+    targetFrequencyFortnight: 4,
+    targetMinutesFortnight: null,
     travelMinutes: 10,
     muscles: ['Core', 'Back', 'Legs'],
     minDuration: 20,
@@ -121,9 +120,9 @@ function getMaintenanceDebt(goals, recentActivity, candidateType) {
     return 0
   }
 
-  const targetFrequency = Number(relevantGoal.targetFrequency) || 0
+  const targetFrequencyFortnight = Number(relevantGoal.targetFrequencyFortnight) || 0
   const last = recentActivity.find((item) => matchGoal({ name: item.activity }, candidateType))
-  const daysAgo = last?.daysAgo ?? (targetFrequency > 0 ? targetFrequency * 4 + 4 : 12)
+  const daysAgo = last?.daysAgo ?? (targetFrequencyFortnight > 0 ? 14 / targetFrequencyFortnight + 4 : 12)
   const overdue = Math.max(0, daysAgo - 3)
   return Math.min(180, overdue * 8 + relevantGoal.priority * 12)
 }
@@ -204,7 +203,7 @@ export function buildRecommendation({
         maxDuration,
         sorenessLevel,
         exerciseName: exercise.name,
-        activity: exercise.activity || exercise.name,
+        activity: String(exercise.activity || '').trim() || exercise.name,
         travelMinutes,
         muscles: exercise.muscles || [],
       }
@@ -273,8 +272,10 @@ export function buildRecommendation({
     }
 
     const matchTarget = preferenceList.some((entry) => {
-      const value = String(entry).toLowerCase()
-      return value === 'anything' || value === String(candidate.exerciseName || '').toLowerCase() || value === String(candidate.activity || '').toLowerCase()
+      const value = String(entry).trim().toLowerCase()
+      return value === 'anything'
+        || value === String(candidate.exerciseName || '').trim().toLowerCase()
+        || value === String(candidate.activity || '').trim().toLowerCase()
     })
 
     if (matchTarget) {

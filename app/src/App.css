@@ -542,6 +542,10 @@
   margin-top: 14px;
 }
 
+.settings-intro {
+  margin: 0 0 12px;
+}
+
 .availability-list,
 .weekly-assignment-list {
   display: grid;
@@ -632,6 +636,12 @@
   background: rgba(15, 23, 42, 0.2);
   padding: 14px;
   margin-top: 12px;
+}
+
+.goal-editor-title {
+  margin: 0 0 12px;
+  color: #e2e8f0;
+  font-size: 0.98rem;
 }
 
 .editor-grid {

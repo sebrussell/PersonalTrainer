@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-import { buildRecommendation } from './scheduler'
+import { buildRecommendation, defaultGoals } from './scheduler'
+import { getGoalProgress } from './progress'
 
 const timeOptions = [
   { value: 20, label: '20 min' },
@@ -76,132 +77,13 @@ function getRecentActivity(history) {
   }))
 }
 
-function getTargetMinutes(goal, targetSessions) {
-  if (Object.prototype.hasOwnProperty.call(goal, 'targetMinutes')) {
-    if (goal.targetMinutes === null || goal.targetMinutes === '') {
-      return null
-    }
-
-    return Math.max(0, Number(goal.targetMinutes) || 0)
-  }
-
+function estimateLegacyTargetMinutes(goal, sessions) {
   const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
   const maxDuration = Number(goal.maxDuration ?? goal.duration ?? minDuration)
-  return Math.round(((minDuration + maxDuration) / 2) * targetSessions)
+  return Math.round(((minDuration + maxDuration) / 2) * sessions)
 }
 
-function getWeeklyProgress(goals, history) {
-  const now = new Date()
-  const weekStart = new Date(now)
-  const day = weekStart.getDay()
-  weekStart.setDate(weekStart.getDate() - (day === 0 ? 6 : day - 1))
-  weekStart.setHours(0, 0, 0, 0)
-
-  return goals.map((goal) => {
-    const goalKeys = [goal.name, goal.activity]
-      .filter(Boolean)
-      .map((value) => String(value).toLowerCase())
-    const sessions = history.filter((session) => {
-      const completedAt = new Date(session.completedAt || session.time || 0)
-      const activity = String(session.activity || session.title || '').toLowerCase()
-      return completedAt >= weekStart && goalKeys.some((key) => activity === key)
-    })
-    const targetSessions = Math.max(0, Number(goal.targetFrequency) || 0)
-    const targetMinutes = getTargetMinutes(goal, targetSessions)
-    const completedMinutes = sessions.reduce((total, session) => total + (Number(session.duration) || 0), 0)
-
-    return {
-      name: goal.name,
-      sessions: sessions.length,
-      targetSessions,
-      completedMinutes,
-      targetMinutes,
-    }
-  })
-}
-
-const seededGoals = [
-  {
-    name: 'Climbing',
-    activity: 'Climbing',
-    priority: 5,
-    targetFrequency: 2,
-    minimumFrequency: 1,
-    travelMinutes: 45,
-    muscles: ['Back', 'Shoulders', 'Grip', 'Core'],
-    minDuration: 60,
-    maxDuration: 120,
-  },
-  {
-    name: 'Swimming',
-    activity: 'Swimming',
-    priority: 3,
-    targetFrequency: 1,
-    minimumFrequency: 1,
-    travelMinutes: 25,
-    muscles: ['Shoulders', 'Core', 'Legs'],
-    minDuration: 30,
-    maxDuration: 60,
-  },
-  {
-    name: 'Running',
-    activity: 'Running',
-    priority: 4,
-    targetFrequency: 3,
-    minimumFrequency: 1,
-    travelMinutes: 15,
-    muscles: ['Legs', 'Core'],
-    minDuration: 20,
-    maxDuration: 60,
-  },
-  {
-    name: 'Walking',
-    activity: 'Walking',
-    priority: 2,
-    targetFrequency: null,
-    targetMinutes: 180,
-    travelMinutes: 5,
-    muscles: ['Legs', 'Core'],
-    minDuration: 15,
-    maxDuration: 60,
-  },
-  {
-    name: 'Cycling',
-    activity: 'Cycling',
-    priority: 2,
-    targetFrequency: 1,
-    minimumFrequency: 1,
-    travelMinutes: 20,
-    muscles: ['Legs', 'Core'],
-    minDuration: 30,
-    maxDuration: 90,
-  },
-  {
-    name: 'Weight training',
-    activity: 'Weight training',
-    priority: 4,
-    targetFrequency: 2,
-    minimumFrequency: 1,
-    travelMinutes: 15,
-    muscles: ['Chest', 'Back', 'Shoulders', 'Legs'],
-    minDuration: 30,
-    maxDuration: 90,
-  },
-  {
-    name: 'Yoga',
-    activity: 'Yoga',
-    priority: 2,
-    targetFrequency: 2,
-    minimumFrequency: 1,
-    travelMinutes: 10,
-    muscles: ['Core', 'Back', 'Legs'],
-    minDuration: 20,
-    maxDuration: 60,
-  },
-].map((goal) => ({
-  ...goal,
-  targetMinutes: getTargetMinutes(goal, Math.max(0, Number(goal.targetFrequency) || 0)),
-}))
+const seededGoals = defaultGoals
 
 const defaultSettings = {
   availableMinutes: 45,
@@ -279,14 +161,57 @@ function readSavedSettings() {
     const goals = Array.isArray(saved.goals)
       ? saved.goals.map((goal) => {
           const firstIntensity = Array.isArray(goal.intensities) ? goal.intensities[0] : null
-          const { intensities, ...goalWithoutIntensities } = goal
+          const {
+            intensities: _intensities,
+            minimumFrequency: _minimumFrequency,
+            targetFrequency: legacyTargetFrequency,
+            targetMinutes: legacyTargetMinutes,
+            targetFrequencyFortnight: savedFortnightFrequency,
+            targetMinutesFortnight: savedFortnightMinutes,
+            ...goalSettings
+          } = goal
+          const seededGoal = seededGoals.find((item) => item.name === goal.name)
+          const durationGoal = {
+            minDuration: goal.minDuration ?? goal.duration ?? firstIntensity?.duration ?? 45,
+            maxDuration: goal.maxDuration ?? goal.duration ?? firstIntensity?.duration ?? 45,
+          }
+          const oldWeeklySessions = legacyTargetFrequency == null
+            ? null
+            : Math.max(0, Number(legacyTargetFrequency) || 0)
+          const migratedFortnightFrequency = Object.prototype.hasOwnProperty.call(goal, 'targetFrequencyFortnight')
+            ? savedFortnightFrequency
+            : oldWeeklySessions == null
+              ? null
+              : seededGoal?.name === 'Swimming' && oldWeeklySessions === 1
+                ? 1
+                : seededGoal?.name === 'Weight training' && oldWeeklySessions === 2
+                  ? 6
+                  : oldWeeklySessions * 2
+          const previousAutoMinutes = estimateLegacyTargetMinutes(durationGoal, oldWeeklySessions || 0)
+          const legacyMinutesWereGenerated = Object.prototype.hasOwnProperty.call(goal, 'targetMinutes')
+            && goal.targetMinutes !== null
+            && goal.targetMinutes !== ''
+            && oldWeeklySessions !== null
+            && Number(goal.targetMinutes) === previousAutoMinutes
+          const savedFortnightMinutesWereGenerated = legacyMinutesWereGenerated
+            && Number(savedFortnightMinutes) === previousAutoMinutes * 2
+          const migratedFortnightMinutes = Object.prototype.hasOwnProperty.call(goal, 'targetMinutesFortnight')
+            ? savedFortnightMinutesWereGenerated
+              ? null
+              : savedFortnightMinutes
+            : Object.prototype.hasOwnProperty.call(goal, 'targetMinutes')
+              ? legacyTargetMinutes === null || legacyTargetMinutes === ''
+                ? null
+                : legacyMinutesWereGenerated
+                  ? null
+                  : Math.max(0, Number(legacyTargetMinutes) || 0) * 2
+              : null
           return {
-            ...goalWithoutIntensities,
+            ...goalSettings,
+            targetFrequencyFortnight: migratedFortnightFrequency,
+            targetMinutesFortnight: migratedFortnightMinutes,
             minDuration: Number(goal.minDuration ?? goal.duration ?? firstIntensity?.duration ?? 45),
             maxDuration: Number(goal.maxDuration ?? goal.duration ?? firstIntensity?.duration ?? 45),
-            targetMinutes: Object.prototype.hasOwnProperty.call(goal, 'targetMinutes')
-              ? goal.targetMinutes
-              : getTargetMinutes(goalWithoutIntensities, Math.max(0, Number(goal.targetFrequency) || 0)),
           }
         })
       : defaultSettings.goals
@@ -320,6 +245,8 @@ function createCustomGoal(name) {
     name: trimmed,
     activity: trimmed,
     priority: 3,
+    targetFrequencyFortnight: null,
+    targetMinutesFortnight: null,
     travelMinutes: 15,
     muscles: ['Full body'],
     minDuration: 15,
@@ -361,7 +288,8 @@ function App() {
     ? recommendationOptions.find((item) => item.title === recommendationSelection.selectedTitle) || recommendation
     : recommendation
 
-  const weeklyProgress = getWeeklyProgress(settings.goals, history)
+  const weeklyProgress = getGoalProgress(settings.goals, history, { period: 'week' })
+  const fortnightProgress = getGoalProgress(settings.goals, history, { period: 'fortnight' })
 
   const toggleSetupSelection = (key, value) => {
     setSetupAnswers((current) => {
@@ -426,31 +354,6 @@ function App() {
     ? (setupAnswers[currentSetupQuestion.key] || []).length > 0
     : Boolean(setupAnswers[currentSetupQuestion.key])
 
-  const cycleOption = (value, list, key) => {
-    setSettings((current) => {
-      if (key === 'activityPreferences') {
-        if (value === 'Anything') {
-          return {
-            ...current,
-            [key]: current[key].includes(value) ? [] : ['Anything'],
-          }
-        }
-
-        return {
-          ...current,
-          [key]: withoutAnything.includes(value)
-            ? withoutAnything.filter((item) => item !== value)
-            : [...withoutAnything, value],
-        }
-      }
-
-      const next = current[key].includes(value)
-        ? current[key].filter((item) => item !== value)
-        : [...current[key], value]
-      return { ...current, [key]: next }
-    })
-  }
-
   const updateSingleChoice = (key, value) => {
     setSettings((current) => ({ ...current, [key]: value }))
   }
@@ -477,6 +380,16 @@ function App() {
           return { ...goal, muscles: value }
         }
 
+        if (field === 'minDuration') {
+          const maxDuration = Number(goal.maxDuration ?? goal.duration ?? value)
+          return { ...goal, minDuration: value, maxDuration: Math.max(Number(value), maxDuration) }
+        }
+
+        if (field === 'maxDuration') {
+          const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
+          return { ...goal, minDuration, maxDuration: Math.max(minDuration, Number(value)) }
+        }
+
         return { ...goal, [field]: value }
       }),
     }))
@@ -489,10 +402,10 @@ function App() {
         ...current.goals,
         {
           name: `Exercise ${current.goals.length + 1}`,
-          activity: 'Running',
+          activity: '',
           priority: 3,
-          targetFrequency: null,
-          minimumFrequency: 1,
+          targetFrequencyFortnight: null,
+          targetMinutesFortnight: null,
           travelMinutes: 15,
           muscles: ['Legs'],
           minDuration: 15,
@@ -984,38 +897,6 @@ function App() {
             </div>
           </section>
 
-          <section className="card">
-            <h2>What do you fancy?</h2>
-            <div className="pill-grid slim">
-              {activityOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={settings.activityPreferences.includes(option) ? 'pill selected' : 'pill'}
-                  onClick={() => cycleOption(option, settings.activityPreferences, 'activityPreferences')}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          </section>
-
-          <section className="card">
-            <h2>Anything you’d particularly like to train today?</h2>
-            <div className="pill-grid slim">
-              {muscleOptions.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={settings.musclePreferences.includes(option) ? 'pill selected' : 'pill'}
-                  onClick={() => cycleOption(option, settings.musclePreferences, 'musclePreferences')}
-                >
-                  {option}
-                </button>
-              ))}
-            </div>
-          </section>
-
           <section className="card recommendation-card">
             <p className="eyebrow">Option {recommendationOptions.findIndex((item) => item.title === selectedRecommendation.title) + 1} of {recommendationOptions.length}</p>
             <h2 className="recommendation-title">{selectedRecommendation.title}</h2>
@@ -1126,19 +1007,21 @@ function App() {
       ) : activeTab === 'settings' ? (
         <main className="planner settings-tab-page">
           <details className="card settings-section" open>
-            <summary>Exercise types</summary>
+            <summary>Exercise settings</summary>
             <div className="settings-section-body">
+            <p className="field-help settings-intro">Set fortnight goals and the details used for recommendations. Priority affects what is suggested; body areas drive soreness checks; travel/setup counts against available time. A blank activity match uses the exercise name.</p>
             <div className="card-header-row">
               <button type="button" className="primary-button small" onClick={addGoal}>
-                + Add type
+                + Add exercise
               </button>
             </div>
 
             {settings.goals.map((goal, index) => (
               <div key={`${goal.name}-${index}`} className="goal-editor">
+                <h3 className="goal-editor-title">{goal.name || `Exercise ${index + 1}`}</h3>
                 <div className="editor-grid">
                   <label>
-                    <span>Name</span>
+                    <span>Exercise name</span>
                     <input
                       type="text"
                       value={goal.name}
@@ -1147,89 +1030,74 @@ function App() {
                   </label>
 
                   <label>
-                    <span>Activity</span>
-                    <select
-                      value={goal.activity || goal.name}
+                    <span>Activity match (optional)</span>
+                    <input
+                      type="text"
+                      value={goal.activity ?? ''}
+                      placeholder={goal.name}
                       onChange={(event) => updateGoal(index, 'activity', event.target.value)}
-                    >
-                      {activityOptions.filter((option) => option !== 'Anything').map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </label>
 
                   <label>
-                    <span>Priority</span>
+                    <span>Recommendation priority (1-5)</span>
                     <input
                       type="number"
                       min="1"
                       max="5"
+                      step="1"
                       value={goal.priority}
-                      onChange={(event) => updateGoal(index, 'priority', readNumberInput(event.target.value))}
+                      onChange={(event) => updateGoal(index, 'priority', Math.min(5, Math.max(1, readNumberInput(event.target.value) || 1)))}
                     />
                   </label>
 
                   <label>
-                    <span>Target / week (optional)</span>
+                    <span>Sessions per fortnight</span>
                     <input
                       type="number"
                       min="0"
-                      max="7"
-                      value={goal.targetFrequency ?? ''}
-                      placeholder="Optional"
-                      onChange={(event) => updateGoal(index, 'targetFrequency', event.target.value === '' ? null : readNumberInput(event.target.value))}
+                      max="14"
+                      step="1"
+                      value={goal.targetFrequencyFortnight ?? ''}
+                      onChange={(event) => updateGoal(index, 'targetFrequencyFortnight', event.target.value === '' ? null : readNumberInput(event.target.value))}
                     />
                   </label>
 
                   <label>
-                    <span>Minimum / week</span>
+                    <span>Minutes per fortnight (optional)</span>
                     <input
                       type="number"
                       min="0"
-                      max="7"
-                      value={goal.minimumFrequency ?? 1}
-                      onChange={(event) => updateGoal(index, 'minimumFrequency', readNumberInput(event.target.value))}
+                      max="4000"
+                      value={goal.targetMinutesFortnight ?? ''}
+                      onChange={(event) => updateGoal(index, 'targetMinutesFortnight', event.target.value === '' ? null : readNumberInput(event.target.value))}
                     />
                   </label>
 
                   <label>
-                    <span>Minimum length</span>
+                    <span>Shortest session (minutes)</span>
                     <input
                       type="number"
                       min="5"
                       max="240"
                       value={goal.minDuration ?? goal.duration ?? 45}
-                      onChange={(event) => updateGoal(index, 'minDuration', readNumberInput(event.target.value))}
+                      onChange={(event) => updateGoal(index, 'minDuration', Math.min(240, Math.max(5, readNumberInput(event.target.value) || 5)))}
                     />
                   </label>
 
                   <label>
-                    <span>Maximum length</span>
+                    <span>Longest session (minutes)</span>
                     <input
                       type="number"
                       min="5"
                       max="240"
                       value={goal.maxDuration ?? goal.duration ?? 45}
-                      onChange={(event) => updateGoal(index, 'maxDuration', readNumberInput(event.target.value))}
+                      onChange={(event) => updateGoal(index, 'maxDuration', Math.min(240, Math.max(5, readNumberInput(event.target.value) || 5)))}
                     />
                   </label>
 
                   <label>
-                    <span>Minutes target (clear for sessions only)</span>
-                    <input
-                      type="number"
-                      min="0"
-                      max="2000"
-                      placeholder={String(getTargetMinutes(goal, Math.max(0, Number(goal.targetFrequency) || 0)) ?? '')}
-                      value={goal.targetMinutes ?? ''}
-                      onChange={(event) => updateGoal(index, 'targetMinutes', event.target.value === '' ? null : readNumberInput(event.target.value))}
-                    />
-                  </label>
-
-                  <label>
-                    <span>Travel time</span>
+                    <span>Travel / setup (min)</span>
                     <input
                       type="number"
                       min="0"
@@ -1241,7 +1109,7 @@ function App() {
                 </div>
 
                 <div className="muscle-editor">
-                  <span>Muscles used</span>
+                  <span>Body areas used</span>
                   <div className="pill-grid slim">
                     {muscleOptions.filter((option) => option !== 'No preference').map((option) => {
                       const selected = Array.isArray(goal.muscles) && goal.muscles.includes(option)
@@ -1266,7 +1134,7 @@ function App() {
                 </div>
 
                 <button type="button" className="remove-button" onClick={() => removeGoal(index)}>
-                  Remove type
+                  Remove exercise
                 </button>
               </div>
             ))}
@@ -1308,10 +1176,10 @@ function App() {
       ) : activeTab === 'progress' ? (
         <main className="planner progress-tab">
           <section className="card">
-            <p className="eyebrow">This week</p>
-            <h2>Weekly progress</h2>
+            <p className="eyebrow">Last 14 days</p>
+            <h2>Fortnightly progress</h2>
             <div className="progress-list">
-              {weeklyProgress.map((goal) => {
+              {fortnightProgress.map((goal) => {
                 const hasSessionTarget = Number(goal.targetSessions) > 0
                 const sessionPercent = hasSessionTarget
                   ? Math.min(100, (goal.sessions / goal.targetSessions) * 100)
