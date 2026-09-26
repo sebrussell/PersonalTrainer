@@ -135,22 +135,28 @@ function getMaintenanceDebt(goals, recentActivity, candidateType) {
 function getFortnightGoalProgress(goals, recentActivity, candidateType) {
   const goal = goals.find((item) => matchGoal(item, candidateType))
   const targetSessions = Math.max(0, Number(goal?.targetFrequencyFortnight) || 0)
-  if (!goal || targetSessions === 0) {
+  const targetMinutes = Math.max(0, Number(goal?.targetMinutesFortnight) || 0)
+  if (!goal || (targetSessions === 0 && targetMinutes === 0)) {
     return null
   }
 
-  const completedSessions = recentActivity.filter((item) => (
+  const matchingSessions = recentActivity.filter((item) => (
     Number(item.daysAgo) >= 0
     && Number(item.daysAgo) < 14
     && matchGoal({ name: item.activity }, candidateType)
-  )).length
+  ))
+  const completedSessions = matchingSessions.length
   const remainingSessions = Math.max(0, targetSessions - completedSessions)
+  const completedMinutes = matchingSessions.reduce((total, item) => total + (Number(item.duration) || 0), 0)
 
   return {
     targetSessions,
     completedSessions,
     remainingSessions,
-    deficitRatio: remainingSessions / targetSessions,
+    deficitRatio: targetSessions > 0 ? remainingSessions / targetSessions : 0,
+    targetMinutes,
+    completedMinutes,
+    remainingMinutes: targetMinutes > 0 ? Math.max(0, targetMinutes - completedMinutes) : null,
   }
 }
 
@@ -222,14 +228,22 @@ export function buildRecommendation({
       const minDuration = Number(exercise.minDuration ?? exercise.duration ?? 45)
       const maxDuration = Math.max(minDuration, Number(exercise.maxDuration ?? exercise.duration ?? minDuration))
       const availableExerciseMinutes = Math.max(0, safeAvailable - travelMinutes)
+      const targetProgress = getFortnightGoalProgress(activeGoals, recentActivity, exercise.name)
+      const remainingTargetMinutes = targetProgress?.remainingMinutes
+      const hasRemainingMinuteTarget = remainingTargetMinutes !== null && remainingTargetMinutes !== undefined && remainingTargetMinutes > 0
+      const targetMinDuration = hasRemainingMinuteTarget ? Math.min(minDuration, remainingTargetMinutes) : minDuration
+      const targetMaxDuration = hasRemainingMinuteTarget ? Math.min(maxDuration, remainingTargetMinutes) : maxDuration
       const muscleUse = normalizeMuscleUse(exercise.muscleUse)
       const sorenessProfile = getSorenessProfile({ muscleUse }, recovery)
-      const availableDuration = Math.min(maxDuration, availableExerciseMinutes)
-      const fittedDuration = Math.max(minDuration, availableDuration)
-      const baselineDuration = roundSessionDuration(fittedDuration, minDuration, maxDuration, availableExerciseMinutes)
+      const availableDuration = Math.min(targetMaxDuration, availableExerciseMinutes)
+      const fittedDuration = Math.max(targetMinDuration, availableDuration)
+      const baselineDuration = roundSessionDuration(fittedDuration, targetMinDuration, targetMaxDuration, availableExerciseMinutes)
+      const uncappedAvailableDuration = Math.min(maxDuration, availableExerciseMinutes)
+      const uncappedFittedDuration = Math.max(minDuration, uncappedAvailableDuration)
+      const uncappedBaselineDuration = roundSessionDuration(uncappedFittedDuration, minDuration, maxDuration, availableExerciseMinutes)
       const durationRisk = Math.max(0, (sorenessProfile.risk - mildSorenessThreshold) / (1 - mildSorenessThreshold))
-      const sorenessReducedDuration = fittedDuration - ((fittedDuration - minDuration) * durationRisk)
-      const duration = roundSessionDuration(sorenessReducedDuration, minDuration, maxDuration, availableExerciseMinutes)
+      const sorenessReducedDuration = fittedDuration - ((fittedDuration - targetMinDuration) * durationRisk)
+      const duration = roundSessionDuration(sorenessReducedDuration, targetMinDuration, targetMaxDuration, availableExerciseMinutes)
 
       return {
         id: normalizeName(exercise.name),
@@ -239,6 +253,8 @@ export function buildRecommendation({
         maxDuration,
         sorenessProfile,
         sorenessAdjusted: durationRisk > 0 && duration < baselineDuration,
+        targetMinutesCapped: hasRemainingMinuteTarget && baselineDuration < uncappedBaselineDuration,
+        remainingTargetMinutes,
         exerciseName: exercise.name,
         activity: String(exercise.activity || '').trim() || exercise.name,
         travelMinutes,
@@ -450,6 +466,19 @@ export function buildRecommendation({
 }
 
 function buildReason({ availableMinutes, energy, travelPreference, activity, reasonBits, goalMatch, goalProgress, preferenceList, candidate, sorenessProfile }) {
+  if (candidate.targetMinutesCapped) {
+    const reason = `You have ${formatAvailableTime(availableMinutes)} available; a ${candidate.duration}-minute ${activity.toLowerCase()} session fits within the ${candidate.remainingTargetMinutes} minutes left in your fortnight target.`
+    const sorenessNote = candidate.sorenessAdjusted
+      ? ` Soreness in your ${sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')} has shortened it.`
+      : sorenessProfile.maxSoreness > 0 && sorenessProfile.maxSoreness <= mildSorenessThreshold
+        ? ` You have mild soreness; warm up properly and see how you feel.`
+        : ''
+    const optionalExtension = Number(availableMinutes) >= 480
+      ? ` If you're having fun, you could consider going longer.`
+      : ''
+    return `${reason}${sorenessNote}${optionalExtension}`
+  }
+
   if (sorenessProfile.maxSoreness > 0 && sorenessProfile.maxSoreness <= mildSorenessThreshold) {
     const areas = sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')
     return `You have some soreness in your ${areas}; warm up properly and see how you feel. If you feel better after warming up, a full session should be fine.`

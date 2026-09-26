@@ -72,6 +72,7 @@ function getRecentActivity(history) {
   return sortHistory(history).map((session) => ({
     activity: session.activity || session.title,
     daysAgo: Math.max(0, Math.floor((today.getTime() - new Date(session.completedAt || session.time).setHours(0, 0, 0, 0)) / 86400000)),
+    duration: Number(session.duration) || 0,
   }))
 }
 

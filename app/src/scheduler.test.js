@@ -296,6 +296,30 @@ describe('buildRecommendation', () => {
     expect(recommendation.reason).not.toMatch(/480 minutes/i)
   })
 
+  it('caps a long session at the remaining fortnight minutes and makes extra time optional', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 480,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['cycling'],
+      goals: [{
+        name: 'Cycling',
+        priority: 5,
+        targetFrequencyFortnight: null,
+        targetMinutesFortnight: 300,
+        travelMinutes: 20,
+        minDuration: 30,
+        maxDuration: 300,
+      }],
+      recentActivity: [{ activity: 'Cycling', daysAgo: 4, duration: 210 }],
+    })
+
+    expect(recommendation.title).toBe('Cycling')
+    expect(recommendation.duration).toBe(90)
+    expect(recommendation.totalTime).toBe(110)
+    expect(recommendation.reason).toMatch(/all day available.*90 minutes left.*if you're having fun.*consider going longer/i)
+  })
+
   it('uses target deficit and priority to rank sore exercise options and explain the choice', () => {
     const settings = {
       availableMinutes: 60,
