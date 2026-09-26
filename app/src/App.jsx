@@ -45,6 +45,24 @@ function readNumberInput(value) {
   return value === '' ? '' : Number(value)
 }
 
+function dateForInput(value) {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+}
+
+function dateFromInput(value) {
+  if (!value) {
+    return ''
+  }
+
+  const date = new Date(`${value}T12:00:00`)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+}
+
 function sortHistory(sessions) {
   return [...sessions].sort((first, second) => (
     new Date(second.completedAt || second.time || 0).getTime()
@@ -264,6 +282,7 @@ function App() {
   const [settings, setSettings] = useState(readSavedSettings)
   const [history, setHistory] = useState(readSessionHistory)
   const [editingHistoryIndex, setEditingHistoryIndex] = useState(null)
+  const [newHistoryEntry, setNewHistoryEntry] = useState(null)
   const [activeTab, setActiveTab] = useState('today')
   const [showSetup, setShowSetup] = useState(() => !readSetupComplete())
   const [setupStep, setSetupStep] = useState(0)
@@ -568,9 +587,40 @@ function App() {
 
   const updateHistorySession = (index, field, value) => {
     const next = history.map((session, sessionIndex) => (
-      sessionIndex === index ? { ...session, [field]: value } : session
+      sessionIndex === index
+        ? { ...session, [field]: value, ...(field === 'activity' ? { title: value } : {}) }
+        : session
     ))
     persistHistory(next)
+  }
+
+  const startHistoryEntry = () => {
+    setEditingHistoryIndex(null)
+    setNewHistoryEntry({
+      activity: settings.goals[0]?.name || '',
+      duration: 45,
+      date: dateForInput(new Date()),
+    })
+  }
+
+  const saveNewHistoryEntry = () => {
+    const duration = Number(newHistoryEntry?.duration)
+    const completedAt = dateFromInput(newHistoryEntry?.date)
+    if (!newHistoryEntry?.activity || !completedAt || !Number.isFinite(duration) || duration <= 0) {
+      return
+    }
+
+    persistHistory([
+      {
+        activity: newHistoryEntry.activity,
+        title: newHistoryEntry.activity,
+        duration,
+        totalTime: duration,
+        completedAt,
+      },
+      ...history,
+    ])
+    setNewHistoryEntry(null)
   }
 
   const deleteHistorySession = (index) => {
@@ -1125,7 +1175,7 @@ function App() {
                     {muscleAreas.map((area) => {
                       const value = getMuscleUse(goal.muscleUse, area)
                       return (
-                        <label className="muscle-load-row" key={`${goal.name}-${area}`} style={{ '--scale-hue': `${198 - 42 * value}`, '--scale-progress': `${value * 100}%` }}>
+                        <label className="muscle-load-row" key={`${goal.name}-${area}`} style={{ '--scale-hue': `${260 + 70 * value}`, '--scale-progress': `${value * 100}%` }}>
                           <span>{area}</span>
                           <input
                             type="range"
@@ -1241,8 +1291,68 @@ function App() {
       ) : (
         <main className="planner history-tab">
           <section className="card">
-            <p className="eyebrow">Completed sessions</p>
-            <h2>Exercise history</h2>
+            <div className="card-header-row history-header">
+              <div>
+                <p className="eyebrow">Completed sessions</p>
+                <h2>Exercise history</h2>
+              </div>
+              <button
+                type="button"
+                className="primary-button small"
+                onClick={startHistoryEntry}
+                disabled={!settings.goals.length}
+              >
+                + Add session
+              </button>
+            </div>
+            {newHistoryEntry ? (
+              <div className="history-item history-item-new">
+                <div className="history-editor">
+                  <label>
+                    <span>Exercise</span>
+                    <select
+                      value={newHistoryEntry.activity}
+                      onChange={(event) => setNewHistoryEntry((current) => ({ ...current, activity: event.target.value }))}
+                    >
+                      {settings.goals.map((goal, index) => (
+                        <option key={`${goal.name}-${index}`} value={goal.name}>{goal.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Duration</span>
+                    <input
+                      type="number"
+                      min="1"
+                      max="480"
+                      value={newHistoryEntry.duration}
+                      onChange={(event) => setNewHistoryEntry((current) => ({ ...current, duration: readNumberInput(event.target.value) }))}
+                    />
+                  </label>
+                  <label>
+                    <span>Date</span>
+                    <input
+                      type="date"
+                      value={newHistoryEntry.date}
+                      onChange={(event) => setNewHistoryEntry((current) => ({ ...current, date: event.target.value }))}
+                    />
+                  </label>
+                  <div className="history-actions">
+                    <button
+                      type="button"
+                      className="primary-button small"
+                      onClick={saveNewHistoryEntry}
+                      disabled={!newHistoryEntry.activity || !newHistoryEntry.date || !Number.isFinite(Number(newHistoryEntry.duration)) || Number(newHistoryEntry.duration) <= 0}
+                    >
+                      Save session
+                    </button>
+                    <button type="button" className="secondary-button small" onClick={() => setNewHistoryEntry(null)}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {history.length ? (
               <div className="history-list">
                 {history.map((session, index) => (
@@ -1251,18 +1361,24 @@ function App() {
                       <div className="history-editor">
                         <label>
                           <span>Exercise</span>
-                          <input
-                            type="text"
+                          <select
                             value={session.activity || session.title || ''}
                             onChange={(event) => updateHistorySession(index, 'activity', event.target.value)}
-                          />
+                          >
+                            {(session.activity || session.title) && !settings.goals.some((goal) => goal.name === (session.activity || session.title)) ? (
+                              <option value={session.activity || session.title}>{session.activity || session.title} (not in settings)</option>
+                            ) : null}
+                            {settings.goals.map((goal, goalIndex) => (
+                              <option key={`${goal.name}-${goalIndex}`} value={goal.name}>{goal.name}</option>
+                            ))}
+                          </select>
                         </label>
                         <label>
                           <span>Duration</span>
                           <input
                             type="number"
                             min="0"
-                            max="240"
+                            max="480"
                             value={session.duration ?? ''}
                             onChange={(event) => updateHistorySession(index, 'duration', readNumberInput(event.target.value))}
                           />
@@ -1271,8 +1387,8 @@ function App() {
                           <span>Date</span>
                           <input
                             type="date"
-                            value={String(session.completedAt || session.time || '').slice(0, 10)}
-                            onChange={(event) => updateHistorySession(index, 'completedAt', new Date(`${event.target.value}T12:00:00`).toISOString())}
+                            value={dateForInput(session.completedAt || session.time || '')}
+                            onChange={(event) => updateHistorySession(index, 'completedAt', dateFromInput(event.target.value))}
                           />
                         </label>
                         <div className="history-actions">
