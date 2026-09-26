@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import './App.css'
-import { buildRecommendation, defaultGoals } from './scheduler'
+import { buildRecommendation, defaultGoals, weightLiftingActivities } from './scheduler'
 import { getGoalProgress } from './progress'
+import { expandSavedGoal } from './goalMigration'
 import { formatAvailableTime, formatTodayDate } from './displayFormat'
 import {
   clampScaleValue,
@@ -24,7 +25,6 @@ const timeOptions = [
 ]
 const energyOptions = [
   { value: 'cooked', label: '😴 Cooked' },
-  { value: 'normal', label: '😐 Normal' },
   { value: 'good', label: '⚡ Good' },
   { value: 'full-of-energy', label: '🔥 Full of energy' },
 ]
@@ -34,7 +34,7 @@ const travelOptions = [
   { value: 'dont-mind', label: '🤷 Don’t mind' },
   { value: 'happy-to-travel', label: '🚗 Happy to travel' },
 ]
-const activityOptions = ['Running', 'Walking', 'Cycling', 'Climbing', 'Swimming', 'Weight training', 'Yoga', 'Anything']
+const activityOptions = ['Running', 'Walking', 'Cycling', 'Climbing', 'Swimming', ...weightLiftingActivities, 'Yoga', 'Anything']
 const likelihoodOptions = [
   { value: 'high', label: 'Likely' },
   { value: 'medium', label: 'Possible' },
@@ -94,17 +94,11 @@ function getRecentActivity(history) {
   }))
 }
 
-function estimateLegacyTargetMinutes(goal, sessions) {
-  const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
-  const maxDuration = Number(goal.maxDuration ?? goal.duration ?? minDuration)
-  return Math.round(((minDuration + maxDuration) / 2) * sessions)
-}
-
 const seededGoals = defaultGoals
 
 const defaultSettings = {
   availableMinutes: 45,
-  energy: 'normal',
+  energy: 'good',
   travelPreference: 'prefer-home',
   activityPreferences: ['Anything'],
   musclePreferences: ['No preference'],
@@ -176,7 +170,7 @@ function readSavedSettings() {
       getSorenessValue(savedSoreness[area] ?? savedSoreness.overall ?? 0),
     ]))
     const goals = Array.isArray(saved.goals)
-      ? saved.goals.map((goal) => {
+      ? saved.goals.flatMap((goal) => expandSavedGoal(goal, seededGoals, weightLiftingActivities)).map((goal) => {
           const firstIntensity = Array.isArray(goal.intensities) ? goal.intensities[0] : null
           const {
             intensities: _intensities,
@@ -207,10 +201,8 @@ function readSavedSettings() {
               ? null
               : seededGoal?.name === 'Swimming' && oldWeeklySessions === 1
                 ? 1
-                : seededGoal?.name === 'Weight training' && oldWeeklySessions === 2
-                  ? 6
-                  : oldWeeklySessions * 2
-          const previousAutoMinutes = estimateLegacyTargetMinutes(durationGoal, oldWeeklySessions || 0)
+                : oldWeeklySessions * 2
+          const previousAutoMinutes = Math.round(((Number(durationGoal.minDuration) + Number(durationGoal.maxDuration)) / 2) * (oldWeeklySessions || 0))
           const legacyMinutesWereGenerated = Object.prototype.hasOwnProperty.call(goal, 'targetMinutes')
             && goal.targetMinutes !== null
             && goal.targetMinutes !== ''
@@ -243,6 +235,9 @@ function readSavedSettings() {
     return {
       ...defaultSettings,
       ...saved,
+      energy: saved.energy === 'cooked' || saved.energy === 'full-of-energy'
+        ? saved.energy
+        : 'good',
       recovery: { ...defaultSettings.recovery, soreness },
       goals,
     }
@@ -344,11 +339,7 @@ function App() {
       ...settings,
       activityPreferences: selectedExercises,
       travelPreference: setupAnswers.travelPreference ?? settings.travelPreference,
-      energy: setupAnswers.lowEnergyPreference === 'rest'
-        ? 'cooked'
-        : setupAnswers.goodDayFeeling === 'easy'
-          ? 'normal'
-          : 'good',
+      energy: setupAnswers.lowEnergyPreference === 'rest' ? 'cooked' : 'good',
       goals: [
         ...seededGoals.filter((goal) => selectedGoalNames.has(goal.name) || selectedGoalNames.has(goal.activity)),
         ...customGoals,

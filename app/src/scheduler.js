@@ -2,6 +2,7 @@ import { getMuscleUse, getSorenessValue, normalizeMuscleUse } from './muscleMode
 import { formatAvailableTime } from './displayFormat'
 
 const mildSorenessThreshold = 0.2
+export const weightLiftingActivities = ['Squats', 'Bench press', 'Shoulder press', 'Deadlifts', 'Weighted pull-ups']
 
 export const defaultGoals = [
   {
@@ -60,13 +61,57 @@ export const defaultGoals = [
     maxDuration: 90,
   },
   {
-    name: 'Weight training',
-    activity: 'Weight training',
+    name: 'Squats',
+    activity: 'Squats',
     priority: 4,
-    targetFrequencyFortnight: 6,
+    targetFrequencyFortnight: 1,
     targetMinutesFortnight: null,
     travelMinutes: 15,
-    muscleUse: { Chest: 0.85, Back: 0.85, Shoulders: 0.75, Arms: 0.75, Legs: 0.85, Core: 0.65, Grip: 0.5 },
+    muscleUse: { Chest: 0.05, Back: 0.35, Shoulders: 0.1, Arms: 0.1, Legs: 1, Core: 0.75, Grip: 0.1 },
+    minDuration: 30,
+    maxDuration: 90,
+  },
+  {
+    name: 'Bench press',
+    activity: 'Bench press',
+    priority: 4,
+    targetFrequencyFortnight: 1,
+    targetMinutesFortnight: null,
+    travelMinutes: 15,
+    muscleUse: { Chest: 1, Back: 0.2, Shoulders: 0.8, Arms: 0.8, Legs: 0.1, Core: 0.35, Grip: 0.35 },
+    minDuration: 30,
+    maxDuration: 90,
+  },
+  {
+    name: 'Shoulder press',
+    activity: 'Shoulder press',
+    priority: 4,
+    targetFrequencyFortnight: 1,
+    targetMinutesFortnight: null,
+    travelMinutes: 15,
+    muscleUse: { Chest: 0.5, Back: 0.25, Shoulders: 1, Arms: 0.75, Legs: 0.1, Core: 0.5, Grip: 0.15 },
+    minDuration: 30,
+    maxDuration: 90,
+  },
+  {
+    name: 'Deadlifts',
+    activity: 'Deadlifts',
+    priority: 4,
+    targetFrequencyFortnight: 1,
+    targetMinutesFortnight: null,
+    travelMinutes: 15,
+    muscleUse: { Chest: 0.05, Back: 1, Shoulders: 0.2, Arms: 0.4, Legs: 0.9, Core: 0.85, Grip: 0.9 },
+    minDuration: 30,
+    maxDuration: 90,
+  },
+  {
+    name: 'Weighted pull-ups',
+    activity: 'Weighted pull-ups',
+    priority: 4,
+    targetFrequencyFortnight: 1,
+    targetMinutesFortnight: null,
+    travelMinutes: 15,
+    muscleUse: { Chest: 0.1, Back: 1, Shoulders: 0.6, Arms: 0.9, Legs: 0.05, Core: 0.35, Grip: 0.9 },
     minDuration: 30,
     maxDuration: 90,
   },
@@ -84,17 +129,17 @@ export const defaultGoals = [
 ]
 
 const travelPenalty = {
-  'no-travel': { Climbing: 90, Swimming: 40, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
-  'prefer-home': { Climbing: 35, Swimming: 20, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
-  'dont-mind': { Climbing: 10, Swimming: 5, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
-  'happy-to-travel': { Climbing: 0, Swimming: 0, Running: 0, 'Weight training': 0, Walking: 0, Yoga: 0 },
+  'no-travel': { Climbing: 90, Swimming: 40, Running: 0, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, 0])), Walking: 0, Yoga: 0 },
+  'prefer-home': { Climbing: 35, Swimming: 20, Running: 0, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, 0])), Walking: 0, Yoga: 0 },
+  'dont-mind': { Climbing: 10, Swimming: 5, Running: 0, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, 0])), Walking: 0, Yoga: 0 },
+  'happy-to-travel': { Climbing: 0, Swimming: 0, Running: 0, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, 0])), Walking: 0, Yoga: 0 },
 }
 
 const energyFit = {
-  cooked: { Walking: 40, Running: 8, Yoga: 18, 'Weight training': -30, Swimming: -20, Climbing: -90, Rest: 52 },
-  normal: { Walking: 18, Running: 24, Yoga: 12, 'Weight training': 16, Swimming: 12, Climbing: 18, Rest: 8 },
-  good: { Walking: 12, Running: 26, Yoga: 10, 'Weight training': 22, Swimming: 18, Climbing: 30, Rest: 4 },
-  'full-of-energy': { Walking: 8, Running: 30, Yoga: 12, 'Weight training': 24, Swimming: 20, Climbing: 40, Rest: 3 },
+  cooked: { Walking: 40, Running: 8, Yoga: 18, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, -30])), Swimming: -20, Climbing: -90, Rest: 52 },
+  normal: { Walking: 18, Running: 24, Yoga: 12, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, 16])), Swimming: 12, Climbing: 18, Rest: 8 },
+  good: { Walking: 12, Running: 26, Yoga: 10, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, 22])), Swimming: 18, Climbing: 30, Rest: 4 },
+  'full-of-energy': { Walking: 8, Running: 30, Yoga: 12, ...Object.fromEntries(weightLiftingActivities.map((activity) => [activity, 24])), Swimming: 20, Climbing: 40, Rest: 3 },
 }
 
 function normalizeName(value) {

@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { buildRecommendation, defaultGoals } from './scheduler'
+import { buildRecommendation, defaultGoals, weightLiftingActivities } from './scheduler'
 
 describe('buildRecommendation', () => {
+  it('provides the five specific lifting categories instead of generic weight training', () => {
+    expect(weightLiftingActivities).toEqual([
+      'Squats',
+      'Bench press',
+      'Shoulder press',
+      'Deadlifts',
+      'Weighted pull-ups',
+    ])
+    expect(defaultGoals.map((goal) => goal.name)).toEqual(expect.arrayContaining(weightLiftingActivities))
+    expect(defaultGoals.some((goal) => goal.name === 'Weight training')).toBe(false)
+  })
+
   it('prefers low-effort, travel-friendly options when energy is low', () => {
     const recommendation = buildRecommendation({
       availableMinutes: 45,
