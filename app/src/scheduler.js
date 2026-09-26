@@ -1,3 +1,5 @@
+import { getMuscleUse, getSorenessValue, normalizeMuscleUse } from './muscleModel'
+
 export const defaultGoals = [
   {
     name: 'Climbing',
@@ -6,7 +8,7 @@ export const defaultGoals = [
     targetFrequencyFortnight: 4,
     targetMinutesFortnight: null,
     travelMinutes: 45,
-    muscles: ['Back', 'Shoulders', 'Grip', 'Core'],
+    muscleUse: { Chest: 0.1, Back: 0.9, Shoulders: 0.65, Arms: 0.35, Legs: 0.15, Core: 0.65, Grip: 1 },
     minDuration: 60,
     maxDuration: 120,
   },
@@ -17,7 +19,7 @@ export const defaultGoals = [
     targetFrequencyFortnight: 1,
     targetMinutesFortnight: null,
     travelMinutes: 25,
-    muscles: ['Shoulders', 'Core', 'Legs'],
+    muscleUse: { Chest: 0.55, Back: 0.75, Shoulders: 0.8, Arms: 0.75, Legs: 0.2, Core: 0.5, Grip: 0.1 },
     minDuration: 30,
     maxDuration: 60,
   },
@@ -28,7 +30,7 @@ export const defaultGoals = [
     targetFrequencyFortnight: 6,
     targetMinutesFortnight: null,
     travelMinutes: 15,
-    muscles: ['Legs', 'Core'],
+    muscleUse: { Chest: 0.05, Back: 0.1, Shoulders: 0.1, Arms: 0.3, Legs: 1, Core: 0.45, Grip: 0 },
     minDuration: 20,
     maxDuration: 60,
   },
@@ -39,7 +41,7 @@ export const defaultGoals = [
     targetFrequencyFortnight: null,
     targetMinutesFortnight: 360,
     travelMinutes: 5,
-    muscles: ['Legs', 'Core'],
+    muscleUse: { Chest: 0, Back: 0.05, Shoulders: 0, Arms: 0.05, Legs: 0.3, Core: 0.1, Grip: 0 },
     minDuration: 15,
     maxDuration: 60,
   },
@@ -50,7 +52,7 @@ export const defaultGoals = [
     targetFrequencyFortnight: 2,
     targetMinutesFortnight: null,
     travelMinutes: 20,
-    muscles: ['Legs', 'Core'],
+    muscleUse: { Chest: 0.05, Back: 0.25, Shoulders: 0.15, Arms: 0.1, Legs: 0.9, Core: 0.4, Grip: 0.05 },
     minDuration: 30,
     maxDuration: 90,
   },
@@ -61,7 +63,7 @@ export const defaultGoals = [
     targetFrequencyFortnight: 6,
     targetMinutesFortnight: null,
     travelMinutes: 15,
-    muscles: ['Chest', 'Back', 'Shoulders', 'Legs'],
+    muscleUse: { Chest: 0.85, Back: 0.85, Shoulders: 0.75, Arms: 0.75, Legs: 0.85, Core: 0.65, Grip: 0.5 },
     minDuration: 30,
     maxDuration: 90,
   },
@@ -72,7 +74,7 @@ export const defaultGoals = [
     targetFrequencyFortnight: 4,
     targetMinutesFortnight: null,
     travelMinutes: 10,
-    muscles: ['Core', 'Back', 'Legs'],
+    muscleUse: { Chest: 0.15, Back: 0.45, Shoulders: 0.3, Arms: 0.35, Legs: 0.55, Core: 0.7, Grip: 0.05 },
     minDuration: 20,
     maxDuration: 60,
   },
@@ -133,25 +135,10 @@ function getTotalTime(candidate) {
   return duration + travelMinutes
 }
 
-function normalizeMuscle(value) {
-  return String(value || '').trim().toLowerCase()
-}
-
-function getSorenessLevel(candidate, recovery) {
-  const severity = {
-    'not-sore': 0,
-    'a-little-sore': 1,
-    sore: 2,
-    'quite-sore': 2,
-    'very-sore': 2,
-  }
-
-  return Object.entries(recovery?.soreness ?? {}).reduce((highest, [area, value]) => {
-    const areaMatches = area === 'overall'
-      || area === 'full body'
-      || (candidate.muscles || []).some((muscle) => normalizeMuscle(muscle) === normalizeMuscle(area))
-    return areaMatches ? Math.max(highest, severity[value] || 0) : highest
-  }, 0)
+function getSorenessRisk(candidate, recovery) {
+  return Object.entries(recovery?.soreness ?? {}).reduce((highest, [area, value]) => (
+    Math.max(highest, getSorenessValue(value) * getMuscleUse(candidate.muscleUse, area))
+  ), 0)
 }
 
 export function buildRecommendation({
@@ -188,12 +175,11 @@ export function buildRecommendation({
       const minDuration = Number(exercise.minDuration ?? exercise.duration ?? 45)
       const maxDuration = Math.max(minDuration, Number(exercise.maxDuration ?? exercise.duration ?? minDuration))
       const availableExerciseMinutes = Math.max(0, safeAvailable - travelMinutes)
-      const sorenessLevel = getSorenessLevel({ muscles: exercise.muscles || [] }, recovery)
+      const muscleUse = normalizeMuscleUse(exercise.muscleUse)
+      const sorenessRisk = getSorenessRisk({ muscleUse }, recovery)
       const availableDuration = Math.min(maxDuration, availableExerciseMinutes)
-      const littleSorenessMaxDuration = minDuration + ((maxDuration - minDuration) / 2)
-      const duration = sorenessLevel === 1
-        ? Math.max(minDuration, Math.min(littleSorenessMaxDuration, availableDuration))
-        : Math.max(minDuration, availableDuration)
+      const fittedDuration = Math.max(minDuration, availableDuration)
+      const duration = Math.round(fittedDuration - ((fittedDuration - minDuration) * sorenessRisk))
 
       return {
         id: normalizeName(exercise.name),
@@ -201,11 +187,11 @@ export function buildRecommendation({
         duration,
         minDuration,
         maxDuration,
-        sorenessLevel,
+        sorenessRisk,
         exerciseName: exercise.name,
         activity: String(exercise.activity || '').trim() || exercise.name,
         travelMinutes,
-        muscles: exercise.muscles || [],
+        muscleUse,
       }
     }),
   ]
@@ -319,16 +305,15 @@ export function buildRecommendation({
       breakdown['Short window penalty'] = -28
     }
 
-    const sorenessLevel = candidate.sorenessLevel ?? getSorenessLevel(candidate, recovery)
-    const sorenessBlocked = sorenessLevel >= 2
-    const sorenessShortened = sorenessLevel === 1
-    breakdown['Recovery soreness'] = sorenessBlocked ? -220 : sorenessShortened ? -10 : 0
+    const sorenessRisk = candidate.sorenessRisk ?? getSorenessRisk(candidate, recovery)
+    const sorenessBlocked = sorenessRisk >= 0.8
+    const sorenessPenalty = sorenessBlocked ? -220 : -Math.round(sorenessRisk * 60)
+    breakdown['Recovery soreness'] = sorenessPenalty
+    score += sorenessPenalty
     if (sorenessBlocked) {
-      score -= 220
-      reasonBits.push('a muscle area used by this exercise is too sore')
-    } else if (sorenessShortened) {
-      score -= 10
-      reasonBits.push('a muscle area is a little sore, so this stays in the shorter half of its range')
+      reasonBits.push('soreness is high for the muscle load of this exercise')
+    } else if (sorenessRisk > 0) {
+      reasonBits.push('soreness and muscle load make this a less suitable choice today')
     }
 
     const timeFit = Math.max(0, 18 - Math.abs(candidate.duration - safeAvailable) / 4)
@@ -337,12 +322,10 @@ export function buildRecommendation({
 
     const musclePreference = musclePreferences?.[0]
     if (musclePreference && musclePreference !== 'no-preference' && musclePreference !== 'full-body') {
-      const matchesExerciseMuscle = (candidate.muscles || []).some(
-        (muscle) => muscle.toLowerCase() === musclePreference.toLowerCase(),
-      )
-      if (matchesExerciseMuscle) {
-        score += 8
-        breakdown['Muscle match'] = 8
+      const muscleMatchScore = Math.round(getMuscleUse(candidate.muscleUse, musclePreference) * 8)
+      if (muscleMatchScore > 0) {
+        score += muscleMatchScore
+        breakdown['Muscle match'] = muscleMatchScore
       }
     }
 
@@ -383,6 +366,7 @@ export function buildRecommendation({
     valid: candidate.id === 'rest' || (!candidate.completedToday && !candidate.sorenessBlocked && getTotalTime(candidate) <= safeAvailable),
     breakdown: candidate.breakdown || {},
     calculation: candidate.calculation || `${candidate.score} = ${candidate.score}`,
+    sorenessRisk: candidate.sorenessRisk ?? 0,
   }))
   const sorted = validCandidates.sort((a, b) => b.score - a.score)
   const winner = sorted[0]

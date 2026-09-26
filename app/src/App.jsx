@@ -2,6 +2,14 @@ import { useEffect, useState } from 'react'
 import './App.css'
 import { buildRecommendation, defaultGoals } from './scheduler'
 import { getGoalProgress } from './progress'
+import {
+  clampScaleValue,
+  getMuscleUse,
+  getSorenessValue,
+  legacyMuscleUse,
+  muscleAreas,
+  normalizeMuscleUse,
+} from './muscleModel'
 
 const timeOptions = [
   { value: 20, label: '20 min' },
@@ -26,13 +34,6 @@ const travelOptions = [
   { value: 'happy-to-travel', label: '🚗 Happy to travel' },
 ]
 const activityOptions = ['Running', 'Walking', 'Cycling', 'Climbing', 'Swimming', 'Weight training', 'Yoga', 'Anything']
-const muscleOptions = ['Chest', 'Back', 'Shoulders', 'Legs', 'Core', 'Grip', 'Full body', 'No preference']
-const sorenessOptions = [
-  { value: 'not-sore', label: 'Not sore' },
-  { value: 'a-little-sore', label: 'A little sore' },
-  { value: 'sore', label: 'Sore' },
-]
-const sorenessAreas = ['Chest', 'Back', 'Shoulders', 'Arms', 'Legs', 'Core', 'Grip']
 const likelihoodOptions = [
   { value: 'high', label: 'Likely' },
   { value: 'medium', label: 'Possible' },
@@ -92,7 +93,7 @@ const defaultSettings = {
   activityPreferences: ['Anything'],
   musclePreferences: ['No preference'],
   recovery: {
-    soreness: Object.fromEntries(sorenessAreas.map((area) => [area, 'not-sore'])),
+    soreness: Object.fromEntries(muscleAreas.map((area) => [area, 0])),
   },
   availabilityDefaults: [],
   goals: seededGoals,
@@ -154,9 +155,9 @@ function readSavedSettings() {
 
     const saved = JSON.parse(raw)
     const savedSoreness = saved.recovery?.soreness || {}
-    const soreness = Object.fromEntries(sorenessAreas.map((area) => [
+    const soreness = Object.fromEntries(muscleAreas.map((area) => [
       area,
-      savedSoreness[area] || savedSoreness.overall || 'not-sore',
+      getSorenessValue(savedSoreness[area] ?? savedSoreness.overall ?? 0),
     ]))
     const goals = Array.isArray(saved.goals)
       ? saved.goals.map((goal) => {
@@ -168,9 +169,15 @@ function readSavedSettings() {
             targetMinutes: legacyTargetMinutes,
             targetFrequencyFortnight: savedFortnightFrequency,
             targetMinutesFortnight: savedFortnightMinutes,
+            muscles: legacyMuscles,
+            muscleUse: savedMuscleUse,
             ...goalSettings
           } = goal
           const seededGoal = seededGoals.find((item) => item.name === goal.name)
+          const muscleUse = normalizeMuscleUse(
+            savedMuscleUse,
+            seededGoal?.muscleUse || legacyMuscleUse(legacyMuscles),
+          )
           const durationGoal = {
             minDuration: goal.minDuration ?? goal.duration ?? firstIntensity?.duration ?? 45,
             maxDuration: goal.maxDuration ?? goal.duration ?? firstIntensity?.duration ?? 45,
@@ -208,6 +215,7 @@ function readSavedSettings() {
               : null
           return {
             ...goalSettings,
+            muscleUse,
             targetFrequencyFortnight: migratedFortnightFrequency,
             targetMinutesFortnight: migratedFortnightMinutes,
             minDuration: Number(goal.minDuration ?? goal.duration ?? firstIntensity?.duration ?? 45),
@@ -248,7 +256,7 @@ function createCustomGoal(name) {
     targetFrequencyFortnight: null,
     targetMinutesFortnight: null,
     travelMinutes: 15,
-    muscles: ['Full body'],
+    muscleUse: normalizeMuscleUse({}),
     minDuration: 15,
     maxDuration: 120,
   }
@@ -363,7 +371,7 @@ function App() {
       ...current,
       recovery: {
         ...current.recovery,
-        soreness: { ...(current.recovery?.soreness || {}), [area]: value },
+        soreness: { ...(current.recovery?.soreness || {}), [area]: clampScaleValue(value) },
       },
     }))
   }
@@ -374,10 +382,6 @@ function App() {
       goals: current.goals.map((goal, goalIndex) => {
         if (goalIndex !== index) {
           return goal
-        }
-
-        if (field === 'muscles') {
-          return { ...goal, muscles: value }
         }
 
         if (field === 'minDuration') {
@@ -407,7 +411,7 @@ function App() {
           targetFrequencyFortnight: null,
           targetMinutesFortnight: null,
           travelMinutes: 15,
-          muscles: ['Legs'],
+          muscleUse: normalizeMuscleUse({}),
           minDuration: 15,
           maxDuration: 60,
         },
@@ -859,26 +863,33 @@ function App() {
 
           <section className="card">
             <h2>How sore is each area?</h2>
-            <div className="soreness-list">
-              {sorenessAreas.map((area) => (
-                <div key={area} className="soreness-row">
-                  <strong>{area}</strong>
-                  <div className="pill-grid slim">
-                    {sorenessOptions.map((option) => (
-                      <button
-                        key={`${area}-${option.value}`}
-                        type="button"
-                        className={settings.recovery?.soreness?.[area] === option.value ? 'pill selected' : 'pill'}
-                        onClick={() => updateSoreness(area, option.value)}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ))}
+            <div className="soreness-scale-labels" aria-hidden="true">
+              <span>0 · Not sore</span>
+              <span>1 · Extremely sore</span>
             </div>
-            <p className="field-help">A little soreness keeps related sessions in the shorter half of their length range. Sore blocks them.</p>
+            <div className="soreness-list">
+              {muscleAreas.map((area) => {
+                const value = getSorenessValue(settings.recovery?.soreness?.[area])
+                return (
+                  <div key={area} className="soreness-row">
+                    <strong>{area}</strong>
+                    <label className="scale-control" style={{ '--scale-hue': `${120 * (1 - value)}` }}>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={value}
+                        aria-label={`${area} soreness`}
+                        aria-valuetext={`${Math.round(value * 100)}% sore`}
+                        onChange={(event) => updateSoreness(area, event.target.value)}
+                      />
+                      <output>{value.toFixed(2)}</output>
+                    </label>
+                  </div>
+                )
+              })}
+            </div>
           </section>
 
           <section className="card">
@@ -1109,25 +1120,29 @@ function App() {
                 </div>
 
                 <div className="muscle-editor">
-                  <span>Body areas used</span>
-                  <div className="pill-grid slim">
-                    {muscleOptions.filter((option) => option !== 'No preference').map((option) => {
-                      const selected = Array.isArray(goal.muscles) && goal.muscles.includes(option)
+                  <span>Muscle use (0–1)</span>
+                  <p className="field-help">0 = none; 1 = heavy use</p>
+                  <div className="muscle-load-list">
+                    {muscleAreas.map((area) => {
+                      const value = getMuscleUse(goal.muscleUse, area)
                       return (
-                        <button
-                          key={`${goal.name}-${option}`}
-                          type="button"
-                          className={selected ? 'pill selected' : 'pill'}
-                          onClick={() => {
-                            const current = Array.isArray(goal.muscles) ? [...goal.muscles] : []
-                            const next = current.includes(option)
-                              ? current.filter((item) => item !== option)
-                              : [...current, option]
-                            updateGoal(index, 'muscles', next)
-                          }}
-                        >
-                          {option}
-                        </button>
+                        <label className="muscle-load-row" key={`${goal.name}-${area}`} style={{ '--scale-hue': `${120 * (1 - value)}` }}>
+                          <span>{area}</span>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={value}
+                            aria-label={`${goal.name} ${area} use`}
+                            aria-valuetext={`${value.toFixed(2)} muscle use`}
+                            onChange={(event) => updateGoal(index, 'muscleUse', {
+                              ...normalizeMuscleUse(goal.muscleUse),
+                              [area]: clampScaleValue(event.target.value),
+                            })}
+                          />
+                          <output>{value.toFixed(2)}</output>
+                        </label>
                       )
                     })}
                   </div>

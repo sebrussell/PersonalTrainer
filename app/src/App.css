@@ -149,6 +149,43 @@
   font-size: 0.88rem;
 }
 
+.soreness-scale-labels,
+.scale-control,
+.muscle-load-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.5rem;
+  align-items: center;
+  gap: 12px;
+}
+
+.soreness-scale-labels {
+  color: #cbd5e1;
+  font-size: 0.76rem;
+}
+
+.soreness-scale-labels span:last-child {
+  text-align: right;
+}
+
+.scale-control output,
+.muscle-load-row output {
+  color: #e2e8f0;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  text-align: right;
+}
+
+.scale-control input[type='range'],
+.muscle-load-row input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  margin: 0;
+  accent-color: hsl(var(--scale-hue) 75% 55%);
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
 .recommendation-card {
   background: linear-gradient(135deg, rgba(37, 99, 235, 0.22), rgba(16, 185, 129, 0.08));
   border-color: rgba(96, 165, 250, 0.3);
@@ -658,7 +695,7 @@
 }
 
 .editor-grid label span,
-.muscle-editor span {
+.muscle-editor > span {
   font-size: 0.76rem;
   color: #cbd5e1;
   text-transform: uppercase;
@@ -677,6 +714,18 @@
 
 .muscle-editor {
   margin-top: 12px;
+}
+
+.muscle-load-list {
+  display: grid;
+  gap: 4px;
+}
+
+.muscle-load-row {
+  grid-template-columns: 6.5rem minmax(0, 1fr) 3.5rem;
+  gap: 8px;
+  color: #dbeafe;
+  font-size: 0.85rem;
 }
 
 .remove-button {
