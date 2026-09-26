@@ -41,10 +41,11 @@ export function getGoalProgress(goals, history, { period = 'week', now = new Dat
 
     return {
       name: goal.name,
+      priority: Number(goal.priority) || 0,
       sessions: sessions.length,
       targetSessions,
       completedMinutes,
       targetMinutes,
     }
-  })
+  }).sort((first, second) => second.priority - first.priority)
 }

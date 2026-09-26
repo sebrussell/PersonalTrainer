@@ -175,15 +175,72 @@
   text-align: right;
 }
 
-.scale-control input[type='range'],
-.muscle-load-row input[type='range'] {
+.scale-slider {
+  appearance: none;
+  -webkit-appearance: none;
   width: 100%;
   min-width: 0;
-  height: 40px;
+  height: 44px;
   margin: 0;
-  accent-color: hsl(var(--scale-hue) 75% 55%);
+  background: transparent;
   cursor: pointer;
   touch-action: pan-y;
+}
+
+.scale-slider--soreness {
+  --scale-start: #a78bfa;
+  --scale-end: #f472b6;
+}
+
+.scale-slider--muscle-use {
+  --scale-start: #38bdf8;
+  --scale-end: #34d399;
+}
+
+.scale-slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--scale-start), var(--scale-end)) left center / var(--scale-progress) 100% no-repeat,
+    rgba(148, 163, 184, 0.24);
+}
+
+.scale-slider::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.24);
+}
+
+.scale-slider::-moz-range-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--scale-start), var(--scale-end));
+}
+
+.scale-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  margin-top: -6px;
+  border: 2px solid #f8fafc;
+  border-radius: 50%;
+  background: hsl(var(--scale-hue) 75% 55%);
+  box-shadow: 0 1px 4px rgba(2, 6, 23, 0.45);
+}
+
+.scale-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f8fafc;
+  border-radius: 50%;
+  background: hsl(var(--scale-hue) 75% 55%);
+  box-shadow: 0 1px 4px rgba(2, 6, 23, 0.45);
+}
+
+.scale-slider:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+  border-radius: 999px;
 }
 
 .recommendation-card {

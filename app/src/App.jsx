@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import './App.css'
 import { buildRecommendation, defaultGoals } from './scheduler'
 import { getGoalProgress } from './progress'
+import { formatAvailableTime, formatTodayDate } from './displayFormat'
 import {
   clampScaleValue,
   getMuscleUse,
@@ -49,10 +50,6 @@ function sortHistory(sessions) {
     new Date(second.completedAt || second.time || 0).getTime()
     - new Date(first.completedAt || first.time || 0).getTime()
   ))
-}
-
-function formatAvailableTime(minutes) {
-  return Number(minutes) >= 480 ? 'all day' : `${minutes} min`
 }
 
 function readSessionHistory() {
@@ -774,7 +771,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Thursday 24 September</p>
+          <p className="eyebrow">{formatTodayDate()}</p>
           <h1>
             You have <span>{formatAvailableTime(settings.availableMinutes)}</span> available
           </h1>
@@ -873,9 +870,10 @@ function App() {
                 return (
                   <div key={area} className="soreness-row">
                     <strong>{area}</strong>
-                    <label className="scale-control" style={{ '--scale-hue': `${120 * (1 - value)}` }}>
+                    <label className="scale-control" style={{ '--scale-hue': `${260 + 70 * value}`, '--scale-progress': `${value * 100}%` }}>
                       <input
                         type="range"
+                        className="scale-slider scale-slider--soreness"
                         min="0"
                         max="1"
                         step="0.01"
@@ -1126,10 +1124,11 @@ function App() {
                     {muscleAreas.map((area) => {
                       const value = getMuscleUse(goal.muscleUse, area)
                       return (
-                        <label className="muscle-load-row" key={`${goal.name}-${area}`} style={{ '--scale-hue': `${120 * (1 - value)}` }}>
+                        <label className="muscle-load-row" key={`${goal.name}-${area}`} style={{ '--scale-hue': `${198 - 42 * value}`, '--scale-progress': `${value * 100}%` }}>
                           <span>{area}</span>
                           <input
                             type="range"
+                            className="scale-slider scale-slider--muscle-use"
                             min="0"
                             max="1"
                             step="0.01"

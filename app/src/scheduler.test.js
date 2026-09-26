@@ -276,6 +276,26 @@ describe('buildRecommendation', () => {
     expect(recommendation.totalTime).toBeLessThanOrEqual(120)
   })
 
+  it('describes 480 available minutes as all day in the recommendation reason', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 480,
+      energy: 'good',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['running'],
+      goals: [{
+        name: 'Running',
+        priority: 5,
+        targetFrequencyFortnight: null,
+        travelMinutes: 0,
+        minDuration: 30,
+        maxDuration: 60,
+      }],
+    })
+
+    expect(recommendation.reason).toMatch(/You have all day available/i)
+    expect(recommendation.reason).not.toMatch(/480 minutes/i)
+  })
+
   it('uses target deficit and priority to rank sore exercise options and explain the choice', () => {
     const settings = {
       availableMinutes: 60,

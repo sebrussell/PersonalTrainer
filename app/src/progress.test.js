@@ -83,4 +83,14 @@ describe('getGoalProgress', () => {
     expect(climbing.targetMinutes).toBeNull()
     expect(walking.targetMinutes).toBe(360)
   })
+
+  it('orders exercise progress by descending priority', () => {
+    const progress = getGoalProgress([
+      { name: 'Walking', priority: 1, targetFrequencyFortnight: 2 },
+      { name: 'Running', priority: 5, targetFrequencyFortnight: 6 },
+      { name: 'Swimming', priority: 3, targetFrequencyFortnight: 1 },
+    ], [], { period: 'fortnight', now })
+
+    expect(progress.map((goal) => goal.name)).toEqual(['Running', 'Swimming', 'Walking'])
+  })
 })

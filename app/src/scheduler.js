@@ -1,4 +1,5 @@
 import { getMuscleUse, getSorenessValue, normalizeMuscleUse } from './muscleModel'
+import { formatAvailableTime } from './displayFormat'
 
 const mildSorenessThreshold = 0.2
 
@@ -456,7 +457,7 @@ function buildReason({ availableMinutes, energy, travelPreference, activity, rea
 
   if (sorenessProfile.affectedAreas.length && candidate.sorenessAdjusted) {
     const areas = sorenessProfile.affectedAreas.map((area) => area.toLowerCase()).join(' and ')
-    const reason = `You have ${availableMinutes} min; soreness in your ${areas} suggests a lighter ${candidate.duration}-min ${activity.toLowerCase()} session.`
+    const reason = `You have ${formatAvailableTime(availableMinutes)} available; soreness in your ${areas} suggests a lighter ${candidate.duration}-min ${activity.toLowerCase()} session.`
 
     if (goalProgress?.remainingSessions > 0 && goalProgress.deficitRatio >= 0.5) {
       const done = goalProgress.completedSessions
@@ -480,7 +481,7 @@ function buildReason({ availableMinutes, energy, travelPreference, activity, rea
     return `You have soreness in your ${areas}, and you're near your target; this is still an option, but I'd rank it lower today.`
   }
 
-  const points = [`You have ${availableMinutes} minutes available`]
+  const points = [`You have ${formatAvailableTime(availableMinutes)} available`]
 
   if (energy === 'cooked') {
     points.push('you feel cooked')
