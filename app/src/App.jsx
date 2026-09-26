@@ -401,19 +401,34 @@ function App() {
           return goal
         }
 
-        if (field === 'minDuration') {
-          const maxDuration = Number(goal.maxDuration ?? goal.duration ?? value)
-          return { ...goal, minDuration: value, maxDuration: Math.max(Number(value), maxDuration) }
-        }
-
-        if (field === 'maxDuration') {
-          const minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
-          return { ...goal, minDuration, maxDuration: Math.max(minDuration, Number(value)) }
-        }
-
         return { ...goal, [field]: value }
       }),
     }))
+  }
+
+  const commitGoalNumber = (index, field, min, max, fallback) => {
+    const rawValue = settings.goals[index]?.[field]
+    const value = rawValue === '' || rawValue === null || rawValue === undefined
+      ? fallback
+      : Number(rawValue)
+    updateGoal(index, field, Math.min(max, Math.max(min, Number.isFinite(value) ? value : fallback)))
+  }
+
+  const commitGoalDurationBounds = (index, editedField) => {
+    const goal = settings.goals[index]
+    let minDuration = Number(goal.minDuration ?? goal.duration ?? 45)
+    let maxDuration = Number(goal.maxDuration ?? goal.duration ?? 45)
+    minDuration = Math.min(240, Math.max(5, Number.isFinite(minDuration) ? minDuration : 45))
+    maxDuration = Math.min(240, Math.max(5, Number.isFinite(maxDuration) ? maxDuration : 45))
+
+    if (editedField === 'minDuration' && minDuration > maxDuration) {
+      maxDuration = minDuration
+    } else if (editedField === 'maxDuration' && maxDuration < minDuration) {
+      minDuration = maxDuration
+    }
+
+    updateGoal(index, 'minDuration', minDuration)
+    updateGoal(index, 'maxDuration', maxDuration)
   }
 
   const addGoal = () => {
@@ -1077,7 +1092,7 @@ function App() {
             </div>
 
             {settings.goals.map((goal, index) => (
-              <div key={`${goal.name}-${index}`} className="goal-editor">
+              <div key={index} className="goal-editor">
                 <h3 className="goal-editor-title">{goal.name || `Exercise ${index + 1}`}</h3>
                 <div className="editor-grid">
                   <label>
@@ -1106,8 +1121,9 @@ function App() {
                       min="1"
                       max="5"
                       step="1"
-                      value={goal.priority}
-                      onChange={(event) => updateGoal(index, 'priority', Math.min(5, Math.max(1, readNumberInput(event.target.value) || 1)))}
+                      value={goal.priority ?? ''}
+                      onChange={(event) => updateGoal(index, 'priority', readNumberInput(event.target.value))}
+                      onBlur={() => commitGoalNumber(index, 'priority', 1, 5, 3)}
                     />
                   </label>
 
@@ -1120,6 +1136,11 @@ function App() {
                       step="1"
                       value={goal.targetFrequencyFortnight ?? ''}
                       onChange={(event) => updateGoal(index, 'targetFrequencyFortnight', event.target.value === '' ? null : readNumberInput(event.target.value))}
+                      onBlur={() => {
+                        if (goal.targetFrequencyFortnight !== null && goal.targetFrequencyFortnight !== undefined) {
+                          commitGoalNumber(index, 'targetFrequencyFortnight', 0, 14, 0)
+                        }
+                      }}
                     />
                   </label>
 
@@ -1131,6 +1152,11 @@ function App() {
                       max="4000"
                       value={goal.targetMinutesFortnight ?? ''}
                       onChange={(event) => updateGoal(index, 'targetMinutesFortnight', event.target.value === '' ? null : readNumberInput(event.target.value))}
+                      onBlur={() => {
+                        if (goal.targetMinutesFortnight !== null && goal.targetMinutesFortnight !== undefined) {
+                          commitGoalNumber(index, 'targetMinutesFortnight', 0, 4000, 0)
+                        }
+                      }}
                     />
                   </label>
 
@@ -1141,7 +1167,8 @@ function App() {
                       min="5"
                       max="240"
                       value={goal.minDuration ?? goal.duration ?? 45}
-                      onChange={(event) => updateGoal(index, 'minDuration', Math.min(240, Math.max(5, readNumberInput(event.target.value) || 5)))}
+                      onChange={(event) => updateGoal(index, 'minDuration', readNumberInput(event.target.value))}
+                      onBlur={() => commitGoalDurationBounds(index, 'minDuration')}
                     />
                   </label>
 
@@ -1152,7 +1179,8 @@ function App() {
                       min="5"
                       max="240"
                       value={goal.maxDuration ?? goal.duration ?? 45}
-                      onChange={(event) => updateGoal(index, 'maxDuration', Math.min(240, Math.max(5, readNumberInput(event.target.value) || 5)))}
+                      onChange={(event) => updateGoal(index, 'maxDuration', readNumberInput(event.target.value))}
+                      onBlur={() => commitGoalDurationBounds(index, 'maxDuration')}
                     />
                   </label>
 
@@ -1164,6 +1192,7 @@ function App() {
                       max="120"
                       value={goal.travelMinutes ?? 0}
                       onChange={(event) => updateGoal(index, 'travelMinutes', readNumberInput(event.target.value))}
+                      onBlur={() => commitGoalNumber(index, 'travelMinutes', 0, 120, 0)}
                     />
                   </label>
                 </div>
