@@ -25,6 +25,8 @@ jobs:
           cache: npm
           cache-dependency-path: app/package-lock.json
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - run: npm ci
         working-directory: app
       - run: npm run build
