@@ -343,7 +343,7 @@ export function buildRecommendation({
     }
 
     if (goalMatch) {
-      const goalPriorityScore = goalMatch.priority * 8
+      const goalPriorityScore = goalMatch.priority * 36
       score += goalPriorityScore
       breakdown['Goal priority'] = goalPriorityScore
     }

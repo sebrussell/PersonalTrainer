@@ -87,6 +87,23 @@ describe('buildRecommendation', () => {
     })
   })
 
+  it('recommends a higher-priority yoga session over walking when both fit', () => {
+    const recommendation = buildRecommendation({
+      availableMinutes: 45,
+      energy: 'cooked',
+      travelPreference: 'happy-to-travel',
+      activityPreferences: ['anything'],
+      goals: [
+        { name: 'Yoga', priority: 3, targetFrequencyFortnight: null, targetMinutesFortnight: null, travelMinutes: 0, minDuration: 15, maxDuration: 45 },
+        { name: 'Walking', priority: 2, targetFrequencyFortnight: null, targetMinutesFortnight: null, travelMinutes: 0, minDuration: 15, maxDuration: 45 },
+      ],
+    })
+
+    expect(recommendation.title).toBe('Yoga')
+    expect(recommendation.debug.find((item) => item.title === 'Yoga').valid).toBe(true)
+    expect(recommendation.debug.find((item) => item.title === 'Walking').valid).toBe(true)
+  })
+
   it('does not recommend an exercise completed today', () => {
     const recommendation = buildRecommendation({
       availableMinutes: 60,
