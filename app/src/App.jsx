@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import './App.css'
 import { buildRecommendation, defaultGoals, weightLiftingActivities } from './scheduler'
 import { getGoalProgress } from './progress'
+import { createHistoryCsv, createSettingsCsv } from './csvExport'
 import { expandSavedGoal } from './goalMigration'
 import { formatAvailableTime, formatTodayDate } from './displayFormat'
 import {
@@ -68,6 +69,17 @@ function sortHistory(sessions) {
     new Date(second.completedAt || second.time || 0).getTime()
     - new Date(first.completedAt || first.time || 0).getTime()
   ))
+}
+
+function downloadCsv(filename, content) {
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.append(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function readSessionHistory() {
@@ -283,6 +295,7 @@ function App() {
   const [setupStep, setSetupStep] = useState(0)
   const [setupAnswers, setSetupAnswers] = useState({})
   const [customExerciseInput, setCustomExerciseInput] = useState('')
+  const [shareStatus, setShareStatus] = useState('')
 
   useEffect(() => {
     window.localStorage.setItem('personal-trainer-settings', JSON.stringify(settings))
@@ -632,6 +645,32 @@ function App() {
   const deleteHistorySession = (index) => {
     persistHistory(history.filter((_, sessionIndex) => sessionIndex !== index))
     setEditingHistoryIndex(null)
+  }
+
+  const shareCsvFiles = async () => {
+    setShareStatus('')
+    const files = [
+      new File([createHistoryCsv(history)], 'exercise-history.csv', { type: 'text/csv;charset=utf-8' }),
+      new File([createSettingsCsv(settings)], 'exercise-settings.csv', { type: 'text/csv;charset=utf-8' }),
+    ]
+
+    if (navigator.share && navigator.canShare?.({ files })) {
+      try {
+        await navigator.share({
+          title: 'Exercise history and settings',
+          text: 'Exercise history and settings CSV files',
+          files,
+        })
+        return
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          return
+        }
+      }
+    }
+
+    files.forEach((file) => downloadCsv(file.name, file))
+    setShareStatus('CSV files downloaded. Attach them to an email to send.')
   }
 
   const addSessionLog = () => {
@@ -1223,6 +1262,16 @@ function App() {
                 </button>
               </div>
             ))}
+            </div>
+          </details>
+
+          <details className="card settings-section" open>
+            <summary>Send to email</summary>
+            <div className="settings-section-body">
+              <button type="button" className="primary-button small" onClick={shareCsvFiles}>
+                Share CSV files
+              </button>
+              {shareStatus ? <p className="field-help" role="status">{shareStatus}</p> : null}
             </div>
           </details>
 
