@@ -15,6 +15,8 @@ function getWindowStart(period, now) {
 export function getGoalProgress(goals, history, { period = 'week', now = new Date() } = {}) {
   const isFortnight = period === 'fortnight'
   const windowStart = getWindowStart(period, now)
+  const windowEnd = new Date(now)
+  windowEnd.setHours(23, 59, 59, 999)
 
   return goals.map((goal) => {
     const goalKeys = [goal.name, goal.activity]
@@ -24,7 +26,7 @@ export function getGoalProgress(goals, history, { period = 'week', now = new Dat
       const completedAt = new Date(session.completedAt || session.time || 0)
       const activity = String(session.activity || session.title || '').trim().toLowerCase()
       return completedAt >= windowStart
-        && completedAt <= now
+        && completedAt <= windowEnd
         && goalKeys.some((key) => activity === key)
     })
     const fortnightSessions = Math.max(0, Number(goal.targetFrequencyFortnight) || 0)

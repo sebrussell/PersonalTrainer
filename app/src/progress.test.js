@@ -48,6 +48,16 @@ describe('getGoalProgress', () => {
     expect(progress[0].sessions).toBe(1)
   })
 
+  it('counts a session dated today even when its saved noon timestamp is later than now', () => {
+    const progress = getGoalProgress([
+      { name: 'Weight training', targetFrequencyFortnight: 4 },
+    ], [
+      { activity: 'Weight training', completedAt: new Date(2026, 0, 15, 12).toISOString(), duration: 30 },
+    ], { period: 'fortnight', now: new Date(2026, 0, 15, 8) })
+
+    expect(progress[0]).toMatchObject({ sessions: 1, completedMinutes: 30 })
+  })
+
   it('keeps weekly progress within the current Monday-to-Sunday week', () => {
     const progress = getGoalProgress([
       { name: 'Weight training', targetFrequencyFortnight: 6 },
