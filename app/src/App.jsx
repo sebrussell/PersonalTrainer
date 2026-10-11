@@ -35,7 +35,6 @@ const travelOptions = [
   { value: 'dont-mind', label: '🤷 Don’t mind' },
   { value: 'happy-to-travel', label: '🚗 Happy to travel' },
 ]
-const activityOptions = ['Running', 'Walking', 'Cycling', 'Climbing', 'Swimming', ...weightLiftingActivities, 'Yoga', 'Anything']
 const likelihoodOptions = [
   { value: 'high', label: 'Likely' },
   { value: 'medium', label: 'Possible' },
@@ -45,6 +44,73 @@ const likelihoodOptions = [
 function readNumberInput(value) {
   return value === '' ? '' : Number(value)
 }
+
+function clampSetupFrequency(value) {
+  return Math.min(14, Math.max(1, Math.round(Number(value) || 1)))
+}
+
+function clampSetupPriority(value) {
+  return Math.min(5, Math.max(1, Math.round(Number(value) || 3)))
+}
+
+function clampSetupTravelMinutes(value) {
+  return Math.min(120, Math.max(0, Math.round(Number(value) || 0)))
+}
+
+function clampSetupGoalMinutes(value) {
+  if (value === '' || value === null || value === undefined) {
+    return null
+  }
+
+  const minutes = Number(value)
+  return Number.isFinite(minutes) ? Math.min(4000, Math.max(0, Math.round(minutes))) : null
+}
+
+function clampSetupDuration(value, fallback) {
+  const numericValue = value === '' || value === null || value === undefined ? fallback : Number(value)
+  return Math.min(240, Math.max(5, Math.round(Number.isFinite(numericValue) ? numericValue : fallback)))
+}
+
+function createCustomSetupGoal(name) {
+  return {
+    name,
+    activity: name,
+    priority: 3,
+    targetFrequencyFortnight: 4,
+    targetMinutesFortnight: null,
+    travelMinutes: 15,
+    muscleUse: Object.fromEntries(muscleAreas.map((area) => [area, 0.35])),
+    minDuration: 30,
+    maxDuration: 60,
+  }
+}
+
+const setupSteps = [
+  {
+    title: 'Choose your activities',
+    description: 'Pick the exercises you want in your plan. Each has its own starting calibration.',
+  },
+  {
+    title: 'Choose session length',
+    description: 'Set the shortest and longest session you want for each activity.',
+  },
+  {
+    title: 'Set frequency and goal minutes',
+    description: 'Choose sessions per two weeks and, if useful, an optional total-minutes target.',
+  },
+  {
+    title: 'Set your priorities',
+    description: 'Higher priority activities are scheduled first. Choose from 1 (lower) to 5 (higher).',
+  },
+  {
+    title: 'Add travel time',
+    description: 'Set the travel time the plan should allow for each activity session.',
+  },
+  {
+    title: 'Adjust muscle impact',
+    description: 'Each activity has pre-calibrated muscle values. Adjust any that do not fit your experience.',
+  },
+]
 
 function dateForInput(value) {
   const date = value instanceof Date ? value : new Date(value)
@@ -120,49 +186,6 @@ const defaultSettings = {
   availabilityDefaults: [],
   goals: seededGoals,
 }
-
-const setupModeOptions = [
-  { value: 'default', label: 'Use the default exercise list' },
-  { value: 'custom', label: 'Choose / edit my exercise list manually' },
-]
-
-const setupQuestions = [
-  {
-    type: 'multi',
-    title: 'Which exercise types do you actually enjoy?',
-    description: 'Choose the activities you want to see in your plan most often.',
-    key: 'activityPreferences',
-    options: activityOptions.filter((option) => option !== 'Anything'),
-  },
-  {
-    type: 'single',
-    title: 'When you have 60 minutes and feel good, what sounds best?',
-    description: 'This helps calibrate how ambitious your recommended sessions should be.',
-    key: 'goodDayFeeling',
-    options: [
-      { value: 'performance', label: 'A proper hard session' },
-      { value: 'balanced', label: 'A steady, balanced workout' },
-      { value: 'easy', label: 'Something low-effort and low-friction' },
-    ],
-  },
-  {
-    type: 'single',
-    title: 'When your energy is low, what do you prefer?',
-    description: 'This helps the app choose recovery-friendly recommendations.',
-    key: 'lowEnergyPreference',
-    options: [
-      { value: 'easy-movement', label: 'Easy movement or a walk' },
-      { value: 'short-strength', label: 'A short strength session' },
-      { value: 'rest', label: 'I would rather rest' },
-    ],
-  },
-  {
-    type: 'single',
-    title: 'How much travel do you usually tolerate?',
-    key: 'travelPreference',
-    options: travelOptions.map((option) => ({ value: option.value, label: option.label })),
-  },
-]
 
 function readSavedSettings() {
   if (typeof window === 'undefined') {
@@ -266,25 +289,6 @@ function readSetupComplete() {
   return window.localStorage.getItem('personal-trainer-setup-complete') === 'true'
 }
 
-function createCustomGoal(name) {
-  const trimmed = String(name || '').trim()
-  if (!trimmed) {
-    return null
-  }
-
-  return {
-    name: trimmed,
-    activity: trimmed,
-    priority: 3,
-    targetFrequencyFortnight: null,
-    targetMinutesFortnight: null,
-    travelMinutes: 15,
-    muscleUse: normalizeMuscleUse({}),
-    minDuration: 15,
-    maxDuration: 120,
-  }
-}
-
 function App() {
   const [settings, setSettings] = useState(readSavedSettings)
   const [history, setHistory] = useState(readSessionHistory)
@@ -293,8 +297,20 @@ function App() {
   const [activeTab, setActiveTab] = useState('today')
   const [showSetup, setShowSetup] = useState(() => !readSetupComplete())
   const [setupStep, setSetupStep] = useState(0)
-  const [setupAnswers, setSetupAnswers] = useState({})
-  const [customExerciseInput, setCustomExerciseInput] = useState('')
+  const [customSetupGoals, setCustomSetupGoals] = useState([])
+  const [customSetupName, setCustomSetupName] = useState('')
+  const [setupExerciseSelections, setSetupExerciseSelections] = useState(() => Object.fromEntries(
+    seededGoals.map((goal) => [goal.name, {
+      selected: false,
+      frequency: goal.targetFrequencyFortnight ?? 4,
+      targetMinutesFortnight: goal.targetMinutesFortnight ?? '',
+      priority: goal.priority ?? 3,
+      travelMinutes: goal.travelMinutes ?? 0,
+      minDuration: goal.minDuration ?? 30,
+      maxDuration: goal.maxDuration ?? 60,
+      muscleUse: normalizeMuscleUse(goal.muscleUse),
+    }]),
+  ))
   const [shareStatus, setShareStatus] = useState('')
 
   useEffect(() => {
@@ -324,39 +340,31 @@ function App() {
   const weeklyProgress = getGoalProgress(settings.goals, history, { period: 'week' })
   const fortnightProgress = getGoalProgress(settings.goals, history, { period: 'fortnight' })
 
-  const toggleSetupSelection = (key, value) => {
-    setSetupAnswers((current) => {
-      const existing = Array.isArray(current[key]) ? current[key] : []
-      const next = existing.includes(value)
-        ? existing.filter((item) => item !== value)
-        : [...existing, value]
-
-      return { ...current, [key]: next }
-    })
-  }
+  const setupGoals = [...seededGoals, ...customSetupGoals]
 
   const completeSetup = () => {
-    const selectedExercises = setupAnswers.customExercises?.length
-      ? setupAnswers.customExercises
-      : setupAnswers.activityPreferences?.length
-        ? setupAnswers.activityPreferences
-        : ['Walking', 'Running']
-
-    const selectedGoalNames = new Set(selectedExercises.map((item) => String(item).trim()))
-    const customGoals = selectedExercises
-      .map((item) => createCustomGoal(item))
-      .filter(Boolean)
-      .filter((goal) => !seededGoals.some((defaultGoal) => defaultGoal.name.toLowerCase() === goal.name.toLowerCase()))
+    const selectedGoals = setupGoals
+      .filter((goal) => setupExerciseSelections[goal.name]?.selected)
+      .map((goal) => {
+        const exercise = setupExerciseSelections[goal.name]
+        const minDuration = clampSetupDuration(exercise.minDuration, goal.minDuration ?? 30)
+        const maxDuration = Math.max(minDuration, clampSetupDuration(exercise.maxDuration, goal.maxDuration ?? 60))
+        return {
+          ...goal,
+          targetFrequencyFortnight: clampSetupFrequency(exercise.frequency),
+          targetMinutesFortnight: clampSetupGoalMinutes(exercise.targetMinutesFortnight),
+          priority: clampSetupPriority(exercise.priority),
+          travelMinutes: clampSetupTravelMinutes(exercise.travelMinutes),
+          minDuration,
+          maxDuration,
+          muscleUse: normalizeMuscleUse(exercise.muscleUse, goal.muscleUse),
+        }
+      })
 
     const nextSettings = {
       ...settings,
-      activityPreferences: selectedExercises,
-      travelPreference: setupAnswers.travelPreference ?? settings.travelPreference,
-      energy: setupAnswers.lowEnergyPreference === 'rest' ? 'cooked' : 'good',
-      goals: [
-        ...seededGoals.filter((goal) => selectedGoalNames.has(goal.name) || selectedGoalNames.has(goal.activity)),
-        ...customGoals,
-      ],
+      activityPreferences: selectedGoals.map((goal) => goal.activity || goal.name),
+      goals: selectedGoals,
     }
 
     setSettings(nextSettings)
@@ -368,20 +376,71 @@ function App() {
     setShowSetup(false)
   }
 
-  const setupFlow = setupAnswers.setupMode === 'custom'
-    ? [{
-        type: 'multi',
-        title: 'Start with the exercises you want in your plan',
-        description: 'You can edit these later from Settings.',
-        key: 'customExercises',
-        options: seededGoals.map((goal) => goal.name),
-      }, ...setupQuestions]
-    : setupQuestions
+  const updateSetupExercise = (goal, updates) => {
+    setSetupExerciseSelections((current) => ({
+      ...current,
+      [goal.name]: {
+        selected: false,
+        frequency: goal.targetFrequencyFortnight ?? 4,
+        targetMinutesFortnight: goal.targetMinutesFortnight ?? '',
+        priority: goal.priority ?? 3,
+        travelMinutes: goal.travelMinutes ?? 0,
+        minDuration: goal.minDuration ?? 30,
+        maxDuration: goal.maxDuration ?? 60,
+        muscleUse: normalizeMuscleUse(goal.muscleUse),
+        ...current[goal.name],
+        ...updates,
+      },
+    }))
+  }
 
-  const currentSetupQuestion = setupFlow[setupStep]
-  const setupIsReady = currentSetupQuestion.type === 'multi'
-    ? (setupAnswers[currentSetupQuestion.key] || []).length > 0
-    : Boolean(setupAnswers[currentSetupQuestion.key])
+  const addCustomSetupGoal = () => {
+    const name = customSetupName.trim()
+    const duplicate = setupGoals.some((goal) => goal.name.toLowerCase() === name.toLowerCase())
+    if (!name || duplicate) {
+      return
+    }
+
+    const goal = createCustomSetupGoal(name)
+    setCustomSetupGoals((current) => [...current, goal])
+    setSetupExerciseSelections((current) => ({
+      ...current,
+      [name]: {
+        selected: true,
+        frequency: goal.targetFrequencyFortnight,
+        targetMinutesFortnight: goal.targetMinutesFortnight ?? '',
+        priority: goal.priority,
+        travelMinutes: goal.travelMinutes,
+        minDuration: goal.minDuration,
+        maxDuration: goal.maxDuration,
+        muscleUse: normalizeMuscleUse(goal.muscleUse),
+      },
+    }))
+    setCustomSetupName('')
+  }
+
+  const commitSetupDuration = (goal, fieldName, value) => {
+    const exercise = setupExerciseSelections[goal.name]
+    let minDuration = clampSetupDuration(
+      fieldName === 'minDuration' ? value : exercise.minDuration,
+      goal.minDuration ?? 30,
+    )
+    let maxDuration = clampSetupDuration(
+      fieldName === 'maxDuration' ? value : exercise.maxDuration,
+      goal.maxDuration ?? 60,
+    )
+
+    if (fieldName === 'minDuration' && minDuration > maxDuration) {
+      maxDuration = minDuration
+    } else if (fieldName === 'maxDuration' && maxDuration < minDuration) {
+      minDuration = maxDuration
+    }
+
+    updateSetupExercise(goal, { minDuration, maxDuration })
+  }
+
+  const selectedSetupGoals = setupGoals.filter((goal) => setupExerciseSelections[goal.name]?.selected)
+  const setupIsReady = selectedSetupGoals.length > 0
 
   const updateSingleChoice = (key, value) => {
     setSettings((current) => ({ ...current, [key]: value }))
@@ -699,137 +758,227 @@ function App() {
   }
 
   if (showSetup) {
+    const currentSetupStep = setupSteps[setupStep]
+
     return (
       <div className="app-shell">
         <div className="card setup-card">
-          <p className="eyebrow">Starter setup</p>
-          <h1>Tell us how you like to move</h1>
-          <p className="setup-copy">This quick calibration will help us choose better sessions for your energy and schedule.</p>
+          <p className="eyebrow">Step {setupStep + 1} of {setupSteps.length}</p>
+          <div className="setup-progress-bar" aria-hidden="true">
+            <span style={{ width: `${((setupStep + 1) / setupSteps.length) * 100}%` }} />
+          </div>
+          <h1>{currentSetupStep.title}</h1>
+          <p className="setup-copy">{currentSetupStep.description}</p>
 
-          {setupAnswers.setupMode ? (
-            <div className="setup-progress">
-              <span>{setupStep + 1} / {setupFlow.length}</span>
-              <div className="setup-progress-bar">
-                <span style={{ width: `${((setupStep + 1) / setupFlow.length) * 100}%` }} />
-              </div>
-            </div>
-          ) : null}
-
-          {setupAnswers.setupMode ? (
+          {setupStep === 0 ? (
             <>
-              <h2>{currentSetupQuestion.title}</h2>
-              {currentSetupQuestion.description ? <p className="setup-copy">{currentSetupQuestion.description}</p> : null}
-            </>
-          ) : (
-            <>
-              <h2>How do you want to start?</h2>
-              <p className="setup-copy">Pick a default exercise list or build your own before we calibrate your recommendations.</p>
-            </>
-          )}
-
-          {!setupAnswers.setupMode ? (
-            <div className="pill-grid slim setup-grid">
-              {setupModeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={setupAnswers.setupMode === option.value ? 'pill selected' : 'pill'}
-                  onClick={() => {
-                    const nextMode = option.value
-                    const seedExercises = seededGoals.map((goal) => goal.name)
-                    setSetupAnswers((current) => ({
-                      ...current,
-                      setupMode: nextMode,
-                      customExercises: nextMode === 'default' ? seedExercises : current.customExercises || seedExercises,
-                    }))
-                    setSetupStep(0)
-                  }}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          ) : currentSetupQuestion.key === 'customExercises' ? (
-            <div className="custom-exercise-step">
-              <div className="custom-exercise-input-row">
+              <form
+                className="setup-custom-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  addCustomSetupGoal()
+                }}
+              >
                 <input
                   type="text"
-                  placeholder="Add exercise, e.g. Archery"
-                  value={customExerciseInput}
-                  onChange={(event) => setCustomExerciseInput(event.target.value)}
+                  value={customSetupName}
+                  aria-label="Custom exercise name"
+                  placeholder="Add an exercise, e.g. Pickleball"
+                  onChange={(event) => setCustomSetupName(event.target.value)}
                 />
                 <button
-                  type="button"
+                  type="submit"
                   className="primary-button small"
-                  onClick={() => {
-                    const value = customExerciseInput.trim()
-                    if (!value) {
-                      return
-                    }
-
-                    setSetupAnswers((current) => {
-                      const existing = Array.isArray(current.customExercises) ? current.customExercises : []
-                      if (existing.some((item) => item.toLowerCase() === value.toLowerCase())) {
-                        return current
-                      }
-
-                      return {
-                        ...current,
-                        customExercises: [...existing, value],
-                      }
-                    })
-                    setCustomExerciseInput('')
-                  }}
+                  disabled={!customSetupName.trim() || setupGoals.some((goal) => goal.name.toLowerCase() === customSetupName.trim().toLowerCase())}
                 >
-                  Add
+                  Add exercise
                 </button>
+              </form>
+              <div className="setup-exercise-list">
+                {setupGoals.map((goal) => {
+                  const exercise = setupExerciseSelections[goal.name]
+                  return (
+                    <div className="setup-exercise-row" key={goal.name}>
+                      <label className="setup-exercise-choice">
+                        <input
+                          type="checkbox"
+                          checked={exercise.selected}
+                          onChange={(event) => updateSetupExercise(goal, { selected: event.target.checked })}
+                        />
+                        <span>
+                          <strong>{goal.name}</strong>
+                          <small>{goal.minDuration}-{goal.maxDuration} min</small>
+                        </span>
+                      </label>
+                    </div>
+                  )
+                })}
               </div>
-
-              <div className="pill-grid slim setup-grid">
-                {(setupAnswers.customExercises || []).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    className={(setupAnswers.customExercises || []).includes(option) ? 'pill selected' : 'pill'}
-                    onClick={() => {
-                      setSetupAnswers((current) => ({
-                        ...current,
-                        customExercises: (current.customExercises || []).includes(option)
-                          ? (current.customExercises || []).filter((item) => item !== option)
-                          : [...(current.customExercises || []), option],
-                      }))
-                    }}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
+            </>
+          ) : setupStep === 1 ? (
+            <div className="setup-exercise-list">
+              {selectedSetupGoals.map((goal) => {
+                const exercise = setupExerciseSelections[goal.name]
+                return (
+                  <div className="setup-exercise-row setup-duration-row" key={goal.name}>
+                    <div className="setup-exercise-summary">
+                      <strong>{goal.name}</strong>
+                    </div>
+                    <div className="setup-field-pair">
+                      {[
+                        { name: 'minDuration', label: 'Min (min)' },
+                        { name: 'maxDuration', label: 'Max (min)' },
+                      ].map((field) => (
+                        <label className="setup-frequency-field" key={field.name}>
+                          <span>{field.label}</span>
+                          <input
+                            type="number"
+                            min="5"
+                            max="240"
+                            step="5"
+                            value={exercise[field.name]}
+                            aria-label={`${goal.name} ${field.name === 'minDuration' ? 'minimum' : 'maximum'} session minutes`}
+                            onChange={(event) => updateSetupExercise(goal, { [field.name]: event.target.value })}
+                            onBlur={(event) => commitSetupDuration(goal, field.name, event.target.value)}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          ) : currentSetupQuestion.type === 'multi' ? (
-            <div className="pill-grid slim setup-grid">
-              {currentSetupQuestion.options.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  className={(setupAnswers[currentSetupQuestion.key] || []).includes(option) ? 'pill selected' : 'pill'}
-                  onClick={() => toggleSetupSelection(currentSetupQuestion.key, option)}
-                >
-                  {option}
-                </button>
-              ))}
+          ) : setupStep === 2 ? (
+            <div className="setup-exercise-list">
+              {selectedSetupGoals.map((goal) => {
+                const exercise = setupExerciseSelections[goal.name]
+                return (
+                  <div className="setup-exercise-row" key={goal.name}>
+                    <div className="setup-exercise-summary">
+                      <strong>{goal.name}</strong>
+                    </div>
+                    <div className="setup-field-pair">
+                      <label className="setup-frequency-field">
+                        <span>Sessions / 2wk</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max="14"
+                          step="1"
+                          value={exercise.frequency}
+                          aria-label={`${goal.name} sessions per 2 weeks`}
+                          onChange={(event) => updateSetupExercise(goal, { frequency: event.target.value })}
+                          onBlur={(event) => updateSetupExercise(goal, { frequency: clampSetupFrequency(event.target.value) })}
+                        />
+                      </label>
+                      <label className="setup-frequency-field">
+                        <span>Goal min / 2wk</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="4000"
+                          step="1"
+                          value={exercise.targetMinutesFortnight ?? ''}
+                          aria-label={`${goal.name} optional goal minutes per fortnight`}
+                          onChange={(event) => updateSetupExercise(goal, { targetMinutesFortnight: event.target.value })}
+                          onBlur={(event) => updateSetupExercise(goal, { targetMinutesFortnight: clampSetupGoalMinutes(event.target.value) })}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : setupStep === 3 ? (
+            <div className="setup-exercise-list">
+              {selectedSetupGoals.map((goal) => {
+                const exercise = setupExerciseSelections[goal.name]
+                return (
+                  <div className="setup-exercise-row" key={goal.name}>
+                    <div className="setup-exercise-summary">
+                      <strong>{goal.name}</strong>
+                    </div>
+                    <label className="setup-frequency-field">
+                      <span>Priority (1-5)</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="5"
+                        step="1"
+                        value={exercise.priority}
+                        aria-label={`${goal.name} priority from 1 to 5`}
+                        onChange={(event) => updateSetupExercise(goal, { priority: event.target.value })}
+                        onBlur={(event) => updateSetupExercise(goal, { priority: clampSetupPriority(event.target.value) })}
+                      />
+                    </label>
+                  </div>
+                )
+              })}
+            </div>
+          ) : setupStep === 4 ? (
+            <div className="setup-exercise-list">
+              {selectedSetupGoals.map((goal) => {
+                const exercise = setupExerciseSelections[goal.name]
+                return (
+                  <div className="setup-exercise-row" key={goal.name}>
+                    <div className="setup-exercise-summary">
+                      <strong>{goal.name}</strong>
+                    </div>
+                    <label className="setup-frequency-field">
+                      <span>Travel (min)</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="120"
+                        step="5"
+                        value={exercise.travelMinutes}
+                        aria-label={`${goal.name} travel minutes per session`}
+                        onChange={(event) => updateSetupExercise(goal, { travelMinutes: event.target.value })}
+                        onBlur={(event) => updateSetupExercise(goal, { travelMinutes: clampSetupTravelMinutes(event.target.value) })}
+                      />
+                    </label>
+                  </div>
+                )
+              })}
             </div>
           ) : (
-            <div className="pill-grid slim setup-grid">
-              {currentSetupQuestion.options.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={setupAnswers[currentSetupQuestion.key] === option.value ? 'pill selected' : 'pill'}
-                  onClick={() => setSetupAnswers((current) => ({ ...current, [currentSetupQuestion.key]: option.value }))}
-                >
-                  {option.label}
-                </button>
-              ))}
+            <div className="setup-exercise-list setup-muscle-list">
+              {selectedSetupGoals.map((goal) => {
+                const exercise = setupExerciseSelections[goal.name]
+                const muscleUse = normalizeMuscleUse(exercise.muscleUse, goal.muscleUse)
+                return (
+                  <div className="setup-muscle-item" key={goal.name}>
+                    <details className="setup-muscle-details">
+                      <summary>{goal.name}</summary>
+                      <p className="field-help">0 = no meaningful load; 1 = heavy load.</p>
+                      <div className="muscle-load-list">
+                        {muscleAreas.map((area) => {
+                          const value = getMuscleUse(muscleUse, area)
+                          return (
+                            <label className="muscle-load-row" key={`${goal.name}-${area}`} style={{ '--scale-hue': `${260 + 70 * value}`, '--scale-progress': `${value * 100}%` }}>
+                              <span>{area}</span>
+                              <input
+                                type="range"
+                                className="scale-slider scale-slider--muscle-use"
+                                min="0"
+                                max="1"
+                                step="0.01"
+                                value={value}
+                                aria-label={`${goal.name} ${area} muscle impact`}
+                                aria-valuetext={`${Math.round(value * 100)}% impact`}
+                                onChange={(event) => updateSetupExercise(goal, {
+                                  muscleUse: { ...muscleUse, [area]: clampScaleValue(event.target.value) },
+                                })}
+                              />
+                              <output>{value.toFixed(2)}</output>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </details>
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -845,17 +994,10 @@ function App() {
             <button
               type="button"
               className="primary-button"
-              onClick={() => {
-                if (setupStep === setupFlow.length - 1) {
-                  completeSetup()
-                  return
-                }
-
-                setSetupStep((current) => current + 1)
-              }}
-              disabled={!setupIsReady}
+              onClick={() => setupStep === setupSteps.length - 1 ? completeSetup() : setSetupStep((current) => current + 1)}
+              disabled={setupStep === 0 && !setupIsReady}
             >
-              {setupStep === setupFlow.length - 1 ? 'Finish setup' : 'Next'}
+              {setupStep === setupSteps.length - 1 ? 'Start planning' : 'Continue'}
             </button>
           </div>
         </div>

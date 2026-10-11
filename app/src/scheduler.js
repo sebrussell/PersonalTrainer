@@ -4,6 +4,83 @@ import { formatAvailableTime } from './displayFormat'
 const mildSorenessThreshold = 0.2
 export const weightLiftingActivities = ['Squats', 'Bench press', 'Shoulder press', 'Deadlifts', 'Weighted pull-ups']
 
+function createCalibratedGoal(name, calibration) {
+  return {
+    name,
+    activity: name,
+    priority: calibration.priority,
+    targetFrequencyFortnight: calibration.frequency,
+    targetMinutesFortnight: null,
+    travelMinutes: calibration.travelMinutes,
+    muscleUse: calibration.muscleUse,
+    minDuration: calibration.minDuration,
+    maxDuration: calibration.maxDuration,
+  }
+}
+
+const popularExerciseGoals = [
+  createCalibratedGoal('Pilates', {
+    priority: 2, frequency: 4, travelMinutes: 15, minDuration: 30, maxDuration: 60,
+    muscleUse: { Chest: 0.2, Back: 0.55, Shoulders: 0.35, Arms: 0.3, Legs: 0.45, Core: 1, Grip: 0.05 },
+  }),
+  createCalibratedGoal('HYROX training', {
+    priority: 4, frequency: 2, travelMinutes: 20, minDuration: 45, maxDuration: 90,
+    muscleUse: { Chest: 0.55, Back: 0.6, Shoulders: 0.75, Arms: 0.65, Legs: 1, Core: 0.9, Grip: 0.45 },
+  }),
+  createCalibratedGoal('Boxing', {
+    priority: 4, frequency: 4, travelMinutes: 20, minDuration: 30, maxDuration: 75,
+    muscleUse: { Chest: 0.75, Back: 0.6, Shoulders: 0.85, Arms: 1, Legs: 0.6, Core: 0.75, Grip: 0.25 },
+  }),
+  createCalibratedGoal('Martial arts', {
+    priority: 4, frequency: 4, travelMinutes: 20, minDuration: 45, maxDuration: 90,
+    muscleUse: { Chest: 0.5, Back: 0.65, Shoulders: 0.65, Arms: 0.75, Legs: 0.8, Core: 0.8, Grip: 0.25 },
+  }),
+  createCalibratedGoal('HIIT', {
+    priority: 3, frequency: 4, travelMinutes: 10, minDuration: 20, maxDuration: 45,
+    muscleUse: { Chest: 0.55, Back: 0.45, Shoulders: 0.55, Arms: 0.5, Legs: 0.85, Core: 0.9, Grip: 0.2 },
+  }),
+  createCalibratedGoal('CrossFit', {
+    priority: 4, frequency: 3, travelMinutes: 20, minDuration: 45, maxDuration: 90,
+    muscleUse: { Chest: 0.7, Back: 0.75, Shoulders: 0.8, Arms: 0.75, Legs: 0.9, Core: 0.9, Grip: 0.6 },
+  }),
+  createCalibratedGoal('Rowing', {
+    priority: 3, frequency: 4, travelMinutes: 10, minDuration: 20, maxDuration: 60,
+    muscleUse: { Chest: 0.35, Back: 1, Shoulders: 0.45, Arms: 0.75, Legs: 0.85, Core: 0.6, Grip: 0.35 },
+  }),
+  createCalibratedGoal('Tennis', {
+    priority: 3, frequency: 2, travelMinutes: 15, minDuration: 45, maxDuration: 120,
+    muscleUse: { Chest: 0.3, Back: 0.45, Shoulders: 0.85, Arms: 0.75, Legs: 0.85, Core: 0.65, Grip: 0.35 },
+  }),
+  createCalibratedGoal('Badminton', {
+    priority: 3, frequency: 2, travelMinutes: 15, minDuration: 45, maxDuration: 90,
+    muscleUse: { Chest: 0.2, Back: 0.4, Shoulders: 0.8, Arms: 0.7, Legs: 0.85, Core: 0.6, Grip: 0.3 },
+  }),
+  createCalibratedGoal('Hiking', {
+    priority: 2, frequency: 2, travelMinutes: 30, minDuration: 60, maxDuration: 180,
+    muscleUse: { Chest: 0.05, Back: 0.15, Shoulders: 0.05, Arms: 0.05, Legs: 0.9, Core: 0.35, Grip: 0.1 },
+  }),
+  createCalibratedGoal('Dance', {
+    priority: 2, frequency: 4, travelMinutes: 15, minDuration: 30, maxDuration: 75,
+    muscleUse: { Chest: 0.1, Back: 0.25, Shoulders: 0.2, Arms: 0.25, Legs: 0.75, Core: 0.65, Grip: 0.05 },
+  }),
+  createCalibratedGoal('Barre', {
+    priority: 2, frequency: 4, travelMinutes: 10, minDuration: 30, maxDuration: 60,
+    muscleUse: { Chest: 0.15, Back: 0.45, Shoulders: 0.25, Arms: 0.35, Legs: 0.8, Core: 0.8, Grip: 0.05 },
+  }),
+  createCalibratedGoal('Basketball', {
+    priority: 3, frequency: 2, travelMinutes: 20, minDuration: 45, maxDuration: 90,
+    muscleUse: { Chest: 0.45, Back: 0.4, Shoulders: 0.55, Arms: 0.5, Legs: 0.9, Core: 0.65, Grip: 0.2 },
+  }),
+  createCalibratedGoal('Football', {
+    priority: 3, frequency: 2, travelMinutes: 20, minDuration: 45, maxDuration: 120,
+    muscleUse: { Chest: 0.15, Back: 0.2, Shoulders: 0.15, Arms: 0.15, Legs: 1, Core: 0.55, Grip: 0.05 },
+  }),
+  createCalibratedGoal('Elliptical', {
+    priority: 2, frequency: 4, travelMinutes: 10, minDuration: 20, maxDuration: 60,
+    muscleUse: { Chest: 0.05, Back: 0.1, Shoulders: 0.05, Arms: 0.1, Legs: 0.75, Core: 0.25, Grip: 0.05 },
+  }),
+]
+
 export const defaultGoals = [
   {
     name: 'Climbing',
@@ -126,6 +203,7 @@ export const defaultGoals = [
     minDuration: 20,
     maxDuration: 60,
   },
+  ...popularExerciseGoals,
 ]
 
 const travelPenalty = {
